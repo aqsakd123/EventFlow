@@ -1,0 +1,13 @@
+.git
+.idea
+.vscode
+**/target
+**/__pycache__
+.env
+.env.*
+*.pem
+*.key
+*.tfstate
+*.tfstate.*
+application-local.yml
+minikube-state
