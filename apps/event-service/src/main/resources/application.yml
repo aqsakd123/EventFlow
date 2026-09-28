@@ -1,0 +1,73 @@
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: event-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/eventflow_event}
+    username: ${SPRING_DATASOURCE_USERNAME:eventflow}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      connection-timeout: 2000
+  flyway:
+    enabled: true
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+
+eventflow:
+  database:
+    # Empty keeps the original writer-only behavior. HA Docker supplies exactly three URLs.
+    read-replica-urls: ${EVENT_DB_READ_REPLICA_URLS:}
+    replica-username: ${EVENT_DB_REPLICA_USERNAME:${SPRING_DATASOURCE_USERNAME:eventflow}}
+    replica-password: ${EVENT_DB_REPLICA_PASSWORD:${SPRING_DATASOURCE_PASSWORD}}
+    replica-pool-size: ${EVENT_DB_REPLICA_POOL_SIZE:5}
+  reconciliation:
+    enabled: ${EVENT_RECONCILIATION_ENABLED:false}
+    site-id: ${EVENT_RECONCILIATION_SITE_ID:event}
+    internal-key: ${EVENT_RECONCILIATION_INTERNAL_KEY:}
+  registration-service:
+    url: ${REGISTRATION_SERVICE_URL:http://localhost:8082}
+  s3:
+    endpoint: ${S3_ENDPOINT:http://localhost:4566}
+    region: ${AWS_REGION:us-east-1}
+    bucket: ${S3_BUCKET:eventflow-media}
+    presign-minutes: ${S3_PRESIGN_MINUTES:10}
+  kafka:
+    topic: ${KAFKA_TOPIC:eventflow.domain-events}
+  outbox:
+    poll-ms: ${OUTBOX_POLL_MS:1000}
+  metrics:
+    refresh-ms: ${METRICS_REFRESH_MS:5000}
+    outbox-alert-age-seconds: ${OUTBOX_ALERT_AGE_SECONDS:60}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    rabbit:
+      enabled: ${RABBIT_HEALTH_ENABLED:true}
+
+logging:
+  pattern:
+    level: '%5p [trace=%X{trace_id} correlation=%X{correlation_id}]'

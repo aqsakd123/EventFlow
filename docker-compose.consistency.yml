@@ -1,0 +1,238 @@
+name: eventflow-consistency
+
+x-event-db-replica: &event-db-replica
+  build:
+    context: ./infra/postgres/replica
+  environment:
+    PRIMARY_HOST: event-db-primary
+    PRIMARY_PORT: 5432
+    REPLICATION_USER: ${REPLICATION_USER:-eventflow_replica}
+    REPLICATION_PASSWORD: "${REPLICATION_PASSWORD:?copy .env.example to .env}"
+    PGDATA: /var/lib/postgresql/data/pgdata
+  depends_on:
+    event-db-primary:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  event-db-primary:
+    image: postgres:16.4
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - wal_keep_size=256MB
+    environment:
+      POSTGRES_DB: eventflow_event
+      POSTGRES_USER: ${POSTGRES_USER:-eventflow}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      - "55432:5432"
+    volumes:
+      - event-db-primary-data:/var/lib/postgresql/data
+      - ./infra/postgres/primary/10-replication.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_event"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  event-db-replica-1:
+    <<: *event-db-replica
+    ports:
+      - "55433:5432"
+    volumes:
+      - event-db-replica-1-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_event"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+
+  event-db-replica-2:
+    <<: *event-db-replica
+    ports:
+      - "55434:5432"
+    volumes:
+      - event-db-replica-2-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_event"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+
+  event-db-replica-3:
+    <<: *event-db-replica
+    ports:
+      - "55435:5432"
+    volumes:
+      - event-db-replica-3-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_event"]
+      interval: 2s
+      timeout: 3s
+      retries: 45
+
+  registration-db:
+    image: postgres:16.4
+    environment:
+      POSTGRES_DB: eventflow_registration
+      POSTGRES_USER: ${POSTGRES_USER:-eventflow}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
+    ports:
+      - "55436:5432"
+    volumes:
+      - registration-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_registration"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-eventflow}
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?copy .env.example to .env}"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  localstack:
+    image: localstack/localstack:3.8.1
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./infra/localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:4566/_localstack/health | grep -q '\"s3\": \"running\"'"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  event-service:
+    build:
+      context: .
+      dockerfile: apps/event-service/Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://event-db-primary:5432/eventflow_event
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-eventflow}
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-eventflow}
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?copy .env.example to .env}"
+      EVENT_DB_READ_REPLICA_URLS: jdbc:postgresql://event-db-replica-1:5432/eventflow_event,jdbc:postgresql://event-db-replica-2:5432/eventflow_event,jdbc:postgresql://event-db-replica-3:5432/eventflow_event
+      RABBITMQ_HOST: rabbitmq
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REGISTRATION_SERVICE_URL: http://registration-service:8082
+      S3_ENDPOINT: http://localstack:4566
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:?copy .env.example to .env}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:?copy .env.example to .env}"
+      EVENT_RECONCILIATION_ENABLED: "true"
+      EVENT_RECONCILIATION_SITE_ID: event-zone-a
+      EVENT_RECONCILIATION_INTERNAL_KEY: "${EVENT_RECONCILIATION_INTERNAL_KEY:?copy .env.example to .env}"
+    ports:
+      - "127.0.0.1:28081:8081"
+    depends_on:
+      event-db-primary:
+        condition: service_healthy
+      event-db-replica-1:
+        condition: service_healthy
+      event-db-replica-2:
+        condition: service_healthy
+      event-db-replica-3:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  registration-service:
+    build:
+      context: .
+      dockerfile: apps/registration-service/Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://registration-db:5432/eventflow_registration
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-eventflow}
+      SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-eventflow}
+      RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?copy .env.example to .env}"
+      RABBITMQ_HOST: rabbitmq
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EVENT_SERVICE_URL: http://event-service:8081
+      EVENT_RECONCILIATION_ENABLED: "true"
+      EVENT_RECONCILIATION_AUTO: "false"
+      EVENT_RECONCILIATION_CHAOS_WRITES_ENABLED: "true"
+      EVENT_RECONCILIATION_SITE_ID: registration-zone-b
+      EVENT_RECONCILIATION_INTERNAL_KEY: "${EVENT_RECONCILIATION_INTERNAL_KEY:?copy .env.example to .env}"
+    ports:
+      - "127.0.0.1:28082:8082"
+    depends_on:
+      registration-db:
+        condition: service_healthy
+      event-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: apps/api-gateway/Dockerfile
+    environment:
+      EVENT_SERVICE_URL: http://event-service:8081
+      REGISTRATION_SERVICE_URL: http://registration-service:8082
+      OIDC_ENABLED: "false"
+    ports:
+      - "28181:8080"
+    depends_on:
+      event-service:
+        condition: service_started
+      registration-service:
+        condition: service_started
+
+volumes:
+  event-db-primary-data:
+  event-db-replica-1-data:
+  event-db-replica-2-data:
+  event-db-replica-3-data:
+  registration-db-data:

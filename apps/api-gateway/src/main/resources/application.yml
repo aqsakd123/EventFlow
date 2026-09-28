@@ -1,0 +1,42 @@
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: registration-service
+          uri: ${REGISTRATION_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/events/*/registrations/**,/api/v1/events/*/check-ins/**,/api/v1/events/*/attendance/**
+        - id: event-service
+          uri: ${EVENT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/events/**
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI:http://localhost:8180/realms/eventflow}
+          jwk-set-uri: ${OIDC_JWK_SET_URI:http://localhost:8180/realms/eventflow/protocol/openid-connect/certs}
+
+eventflow:
+  security:
+    enabled: ${OIDC_ENABLED:false}
+  public-weather:
+    geolocation-url: ${PUBLIC_GEOLOCATION_URL:https://ipwho.is/}
+    weather-url: ${PUBLIC_WEATHER_URL:https://api.open-meteo.com/v1/forecast}
+    timeout: ${PUBLIC_WEATHER_TIMEOUT:5s}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true

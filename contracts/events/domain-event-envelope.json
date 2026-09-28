@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EventFlowDomainEvent",
+  "type": "object",
+  "required": ["messageId", "eventType", "schemaVersion", "eventId", "workspaceId", "occurredAt"],
+  "properties": {
+    "messageId": {"type": "string", "format": "uuid"},
+    "eventType": {"type": "string"},
+    "schemaVersion": {"type": "integer", "minimum": 1},
+    "eventId": {"type": "string", "format": "uuid"},
+    "workspaceId": {"type": "string"},
+    "status": {"type": "string"},
+    "registrationOpen": {"type": "boolean"},
+    "capacity": {"type": "integer"},
+    "eventVersion": {"type": "integer"},
+    "occurredAt": {"type": "string", "format": "date-time"},
+    "correlationId": {"type": "string"}
+  }
+}

@@ -1,0 +1,15 @@
+target/
+.idea/
+*.iml
+.vscode/
+*.log
+.env
+minikube-state/
+*.pem
+*.tfstate
+*.tfstate.*
+application-local.yml
+ops/*-id.txt
+ops/cost-guard-log.txt
+__pycache__/
+*.py[cod]

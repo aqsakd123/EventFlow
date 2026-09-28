@@ -1,0 +1,74 @@
+{
+  "realm": "eventflow",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "eventflow-web",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["http://localhost:3000/*"],
+      "protocolMappers": [
+        {
+          "name": "workspace_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "workspace_id",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "workspace_id",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {"name": "OWNER"},
+      {"name": "ORGANIZER"},
+      {"name": "PARTICIPANT"},
+      {"name": "CHECKIN_STAFF"}
+    ]
+  },
+  "users": [
+    {
+      "username": "organizer",
+      "enabled": true,
+      "firstName": "Event",
+      "lastName": "Organizer",
+      "email": "organizer@eventflow.local",
+      "emailVerified": true,
+      "requiredActions": [],
+      "attributes": {"workspace_id": ["workspace-1"]},
+      "credentials": [{"type": "password", "value": "${KEYCLOAK_ORGANIZER_PASSWORD}", "temporary": false}],
+      "realmRoles": ["ORGANIZER"]
+    },
+    {
+      "username": "participant",
+      "enabled": true,
+      "firstName": "Event",
+      "lastName": "Participant",
+      "email": "participant@eventflow.local",
+      "emailVerified": true,
+      "requiredActions": [],
+      "attributes": {"workspace_id": ["workspace-1"]},
+      "credentials": [{"type": "password", "value": "${KEYCLOAK_PARTICIPANT_PASSWORD}", "temporary": false}],
+      "realmRoles": ["PARTICIPANT"]
+    },
+    {
+      "username": "checkin",
+      "enabled": true,
+      "firstName": "Event",
+      "lastName": "Checkin",
+      "email": "checkin@eventflow.local",
+      "emailVerified": true,
+      "requiredActions": [],
+      "attributes": {"workspace_id": ["workspace-1"]},
+      "credentials": [{"type": "password", "value": "${KEYCLOAK_CHECKIN_PASSWORD}", "temporary": false}],
+      "realmRoles": ["CHECKIN_STAFF"]
+    }
+  ]
+}

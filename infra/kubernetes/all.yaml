@@ -1,0 +1,500 @@
+# Template: render ${...} from .env before kubectl apply.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: eventflow
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: eventflow-secrets
+  namespace: eventflow
+type: Opaque
+stringData:
+  POSTGRES_USER: "${POSTGRES_USER}"
+  POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+  RABBITMQ_USERNAME: "${RABBITMQ_USERNAME}"
+  RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD}"
+  AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+  AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eventflow-config
+  namespace: eventflow
+data:
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  KAFKA_TOPIC: eventflow.domain-events
+  S3_ENDPOINT: http://localstack:4566
+  S3_BUCKET: eventflow-media
+  AWS_REGION: us-east-1
+  EVENT_SERVICE_URL: http://event-service:8081
+  REGISTRATION_SERVICE_URL: http://registration-service:8082
+  OIDC_ENABLED: "false"
+  OIDC_ISSUER_URI: http://localhost:28180/realms/eventflow
+  OIDC_JWK_SET_URI: http://keycloak:8080/realms/eventflow/protocol/openid-connect/certs
+  DB_POOL_SIZE: "30"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  namespace: eventflow
+data:
+  eventflow-realm.json: |
+    {
+      "realm": "eventflow",
+      "enabled": true,
+      "clients": [
+        {
+          "clientId": "eventflow-web",
+          "enabled": true,
+          "publicClient": true,
+          "directAccessGrantsEnabled": true,
+          "redirectUris": ["http://localhost:3000/*"],
+          "protocolMappers": [
+            {
+              "name": "workspace_id",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "config": {
+                "userinfo.token.claim": "true",
+                "user.attribute": "workspace_id",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "workspace_id",
+                "jsonType.label": "String"
+              }
+            }
+          ]
+        }
+      ],
+      "roles": {
+        "realm": [
+          {"name": "OWNER"},
+          {"name": "ORGANIZER"},
+          {"name": "PARTICIPANT"},
+          {"name": "CHECKIN_STAFF"}
+        ]
+      },
+      "users": [
+        {
+          "username": "organizer",
+          "enabled": true,
+          "firstName": "Event",
+          "lastName": "Organizer",
+          "email": "organizer@eventflow.local",
+          "emailVerified": true,
+          "requiredActions": [],
+          "attributes": {"workspace_id": ["workspace-1"]},
+          "credentials": [{"type": "password", "value": "${KEYCLOAK_ORGANIZER_PASSWORD}", "temporary": false}],
+          "realmRoles": ["ORGANIZER"]
+        },
+        {
+          "username": "participant",
+          "enabled": true,
+          "firstName": "Event",
+          "lastName": "Participant",
+          "email": "participant@eventflow.local",
+          "emailVerified": true,
+          "requiredActions": [],
+          "attributes": {"workspace_id": ["workspace-1"]},
+          "credentials": [{"type": "password", "value": "${KEYCLOAK_PARTICIPANT_PASSWORD}", "temporary": false}],
+          "realmRoles": ["PARTICIPANT"]
+        },
+        {
+          "username": "checkin",
+          "enabled": true,
+          "firstName": "Event",
+          "lastName": "Checkin",
+          "email": "checkin@eventflow.local",
+          "emailVerified": true,
+          "requiredActions": [],
+          "attributes": {"workspace_id": ["workspace-1"]},
+          "credentials": [{"type": "password", "value": "${KEYCLOAK_CHECKIN_PASSWORD}", "temporary": false}],
+          "realmRoles": ["CHECKIN_STAFF"]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: eventflow
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: keycloak}}
+  template:
+    metadata: {labels: {app: keycloak}}
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:25.0.6
+          args: ["start-dev", "--http-port=8080", "--import-realm"]
+          env:
+            - {name: KC_BOOTSTRAP_ADMIN_USERNAME, value: "${KEYCLOAK_ADMIN_USERNAME}"}
+            - {name: KC_BOOTSTRAP_ADMIN_PASSWORD, value: "${KEYCLOAK_ADMIN_PASSWORD}"}
+            - {name: KC_HEALTH_ENABLED, value: "true"}
+            - {name: KC_HOSTNAME, value: http://localhost:28180}
+            - {name: KC_HOSTNAME_STRICT, value: "false"}
+          ports: [{containerPort: 8080}, {containerPort: 9000}]
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import/eventflow-realm.json, subPath: eventflow-realm.json}
+          startupProbe:
+            httpGet: {path: /health/ready, port: 9000}
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: {path: /health/ready, port: 9000}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 12
+          resources: {requests: {cpu: 200m, memory: 512Mi}, limits: {cpu: 1000m, memory: 1Gi}}
+      volumes:
+        - {name: realm, configMap: {name: keycloak-realm}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: eventflow
+spec:
+  selector: {app: keycloak}
+  ports: [{name: http, port: 8080, targetPort: 8080}, {name: management, port: 9000, targetPort: 9000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-db
+  namespace: eventflow
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: event-db}}
+  template:
+    metadata: {labels: {app: event-db}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16.4
+          ports: [{containerPort: 5432}]
+          env:
+            - {name: POSTGRES_DB, value: eventflow_event}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: POSTGRES_PASSWORD}}}
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "eventflow", "-d", "eventflow_event"]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: event-db, namespace: eventflow}
+spec:
+  selector: {app: event-db}
+  ports: [{port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registration-db
+  namespace: eventflow
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: registration-db}}
+  template:
+    metadata: {labels: {app: registration-db}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16.4
+          ports: [{containerPort: 5432}]
+          env:
+            - {name: POSTGRES_DB, value: eventflow_registration}
+            - {name: POSTGRES_USER, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: POSTGRES_USER}}}
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: POSTGRES_PASSWORD}}}
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "eventflow", "-d", "eventflow_registration"]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: registration-db, namespace: eventflow}
+spec:
+  selector: {app: registration-db}
+  ports: [{port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  namespace: eventflow
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: rabbitmq}}
+  template:
+    metadata: {labels: {app: rabbitmq}}
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13.7-management
+          ports: [{containerPort: 5672}, {containerPort: 15672}]
+          env:
+            - {name: RABBITMQ_DEFAULT_USER, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: RABBITMQ_USERNAME}}}
+            - {name: RABBITMQ_DEFAULT_PASS, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: RABBITMQ_PASSWORD}}}
+          readinessProbe:
+            exec: {command: ["rabbitmq-diagnostics", "-q", "ping"]}
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 12
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 500m, memory: 768Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: rabbitmq, namespace: eventflow}
+spec:
+  selector: {app: rabbitmq}
+  ports: [{name: amqp, port: 5672, targetPort: 5672}, {name: management, port: 15672, targetPort: 15672}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: eventflow
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: kafka}}
+  template:
+    metadata: {labels: {app: kafka}}
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:3.8.1
+          ports: [{containerPort: 9092}, {containerPort: 9093}]
+          env:
+            - {name: CLUSTER_ID, value: MkU3OEVBNTcwNTJENDM2Qk}
+            - {name: KAFKA_NODE_ID, value: "1"}
+            - {name: KAFKA_PROCESS_ROLES, value: "broker,controller"}
+            - {name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@localhost:9093"}
+            - {name: KAFKA_LISTENERS, value: "PLAINTEXT://:9092,CONTROLLER://:9093"}
+            - {name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka:9092"}
+            - {name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"}
+            - {name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER"}
+            - {name: KAFKA_AUTO_CREATE_TOPICS_ENABLE, value: "true"}
+            - {name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "1"}
+          readinessProbe:
+            tcpSocket: {port: 9092}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources: {requests: {cpu: 250m, memory: 512Mi}, limits: {cpu: 1000m, memory: 1Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: kafka, namespace: eventflow}
+spec:
+  selector: {app: kafka}
+  ports: [{name: broker, port: 9092, targetPort: 9092}, {name: controller, port: 9093, targetPort: 9093}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: localstack-init
+  namespace: eventflow
+data:
+  create-bucket.sh: |
+    #!/bin/sh
+    set -eu
+    awslocal s3 mb s3://eventflow-media 2>/dev/null || true
+    awslocal s3api put-public-access-block --bucket eventflow-media --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localstack
+  namespace: eventflow
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: localstack}}
+  template:
+    metadata: {labels: {app: localstack}}
+    spec:
+      containers:
+        - name: localstack
+          image: localstack/localstack:3.8.1
+          ports: [{containerPort: 4566}]
+          env: [{name: SERVICES, value: s3}, {name: AWS_DEFAULT_REGION, value: us-east-1}]
+          volumeMounts: [{name: init, mountPath: /etc/localstack/init/ready.d/create-bucket.sh, subPath: create-bucket.sh}]
+          readinessProbe:
+            httpGet: {path: /_localstack/health, port: 4566}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 500m, memory: 768Mi}}
+      volumes: [{name: init, configMap: {name: localstack-init, defaultMode: 0755}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: localstack, namespace: eventflow}
+spec:
+  selector: {app: localstack}
+  ports: [{port: 4566, targetPort: 4566}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-service
+  namespace: eventflow
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector: {matchLabels: {app: event-service}}
+  template:
+    metadata: {labels: {app: event-service}}
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-event-db
+          image: busybox:1.36.1
+          command: ["sh", "-c", "until nc -z event-db 5432; do sleep 2; done"]
+      containers:
+        - name: event-service
+          image: eventflow/event-service:0.1.0
+          imagePullPolicy: Never
+          ports: [{containerPort: 8081}]
+          envFrom: [{configMapRef: {name: eventflow-config}}, {secretRef: {name: eventflow-secrets}}]
+          env:
+            - {name: SERVER_PORT, value: "8081"}
+            - {name: SPRING_DATASOURCE_URL, value: jdbc:postgresql://event-db:5432/eventflow_event}
+            - {name: REGISTRATION_SERVICE_URL, valueFrom: {configMapKeyRef: {name: eventflow-config, key: REGISTRATION_SERVICE_URL}}}
+            - {name: SPRING_DATASOURCE_USERNAME, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: POSTGRES_USER}}}
+            - {name: SPRING_DATASOURCE_PASSWORD, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: POSTGRES_PASSWORD}}}
+          startupProbe: {httpGet: {path: /actuator/health/liveness, port: 8081}, periodSeconds: 5, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8081}, initialDelaySeconds: 20, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /actuator/health/liveness, port: 8081}, initialDelaySeconds: 30, periodSeconds: 15}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1000m, memory: 768Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: event-service, namespace: eventflow}
+spec:
+  type: ClusterIP
+  selector: {app: event-service}
+  ports: [{port: 8081, targetPort: 8081}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registration-service
+  namespace: eventflow
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector: {matchLabels: {app: registration-service}}
+  template:
+    metadata: {labels: {app: registration-service}}
+    spec:
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-for-registration-db
+          image: busybox:1.36.1
+          command: ["sh", "-c", "until nc -z registration-db 5432; do sleep 2; done"]
+      containers:
+        - name: registration-service
+          image: eventflow/registration-service:0.1.0
+          imagePullPolicy: Never
+          ports: [{containerPort: 8082}]
+          envFrom: [{configMapRef: {name: eventflow-config}}, {secretRef: {name: eventflow-secrets}}]
+          env:
+            - {name: SERVER_PORT, value: "8082"}
+            - {name: SPRING_DATASOURCE_URL, value: jdbc:postgresql://registration-db:5432/eventflow_registration}
+            - {name: SPRING_DATASOURCE_USERNAME, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: POSTGRES_USER}}}
+            - {name: SPRING_DATASOURCE_PASSWORD, valueFrom: {secretKeyRef: {name: eventflow-secrets, key: POSTGRES_PASSWORD}}}
+          startupProbe: {httpGet: {path: /actuator/health/liveness, port: 8082}, periodSeconds: 5, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8082}, initialDelaySeconds: 20, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /actuator/health/liveness, port: 8082}, initialDelaySeconds: 30, periodSeconds: 15}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1000m, memory: 768Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: registration-service, namespace: eventflow}
+spec:
+  type: ClusterIP
+  selector: {app: registration-service}
+  ports: [{port: 8082, targetPort: 8082}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: eventflow
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector: {matchLabels: {app: api-gateway}}
+  template:
+    metadata: {labels: {app: api-gateway}}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api-gateway
+          image: eventflow/api-gateway:0.1.0
+          imagePullPolicy: Never
+          ports: [{containerPort: 8080}]
+          envFrom: [{configMapRef: {name: eventflow-config}}]
+          env:
+            - {name: SERVER_PORT, value: "8080"}
+          startupProbe: {httpGet: {path: /actuator/health/liveness, port: 8080}, periodSeconds: 5, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /actuator/health/readiness, port: 8080}, initialDelaySeconds: 15, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /actuator/health/liveness, port: 8080}, initialDelaySeconds: 25, periodSeconds: 15}
+          resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: 1000m, memory: 768Mi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: api-gateway, namespace: eventflow}
+spec:
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+  selector: {app: api-gateway}
+  ports: [{port: 8080, targetPort: 8080, nodePort: 30080}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: event-service, namespace: eventflow}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app: event-service}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: registration-service, namespace: eventflow}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app: registration-service}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: api-gateway, namespace: eventflow}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app: api-gateway}}
