@@ -1,0 +1,184 @@
+name: build-push
+
+on:
+  schedule:
+    # 08:00 every day in Asia/Ho_Chi_Minh (UTC+7).
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Build even when there was no commit in the last 24 hours
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: eventflow-ecr-build
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_ARN: arn:aws:iam::485453189328:role/github-ecr-push
+
+jobs:
+  check:
+    name: Check for new commit
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.decide.outputs.should_build }}
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
+    steps:
+      - name: Checkout history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve commit
+        id: commit
+        shell: bash
+        run: echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether to build
+        id: decide
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$FORCE" == "true" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "Forced manual build requested."
+          elif git log -1 --since='24 hours ago' --format='%H' | grep -q .; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            echo "A commit was found in the last 24 hours."
+          else
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "No commit found in the last 24 hours; skipping image builds."
+          fi
+
+  build:
+    name: Build and push ${{ matrix.service }}
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api-gateway
+            module: apps/api-gateway
+            port: 8080
+          - service: event-service
+            module: apps/event-service
+            port: 8081
+          - service: registration-service
+            module: apps/registration-service
+            port: 8082
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: eventflow-github-actions-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Validate ECR repository
+        env:
+          REPO: eventflow/${{ matrix.service }}
+        run: |
+          set -euo pipefail
+          aws ecr describe-repositories \
+            --repository-names "$REPO" \
+            --region "$AWS_REGION" \
+            --no-cli-pager >/dev/null
+
+      - name: Check immutable image tag
+        id: existing
+        env:
+          REPO: eventflow/${{ matrix.service }}
+          IMAGE_TAG: ${{ needs.check.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          if aws ecr describe-images \
+            --repository-name "$REPO" \
+            --image-ids "imageTag=$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --no-cli-pager >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Image $REPO:$IMAGE_TAG already exists; skipping build and push."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push image
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/eventflow/${{ matrix.service }}
+          IMAGE_TAG: ${{ needs.check.outputs.commit_sha }}
+          MODULE: ${{ matrix.module }}
+          PORT: ${{ matrix.port }}
+        run: |
+          set -euo pipefail
+          docker build --pull \
+            --build-arg "SERVICE=$MODULE" \
+            --build-arg "PORT=$PORT" \
+            -t "$IMAGE_URI:$IMAGE_TAG" .
+          docker push "$IMAGE_URI:$IMAGE_TAG"
+
+      - name: Show image digest
+        id: image
+        env:
+          REPO: eventflow/${{ matrix.service }}
+          IMAGE_TAG: ${{ needs.check.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          DIGEST=$(aws ecr describe-images \
+            --repository-name "$REPO" \
+            --image-ids "imageTag=$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text \
+            --no-cli-pager)
+          test -n "$DIGEST" && test "$DIGEST" != "None"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "$REPO:$IMAGE_TAG -> $DIGEST"
+
+      - name: Wait for ECR image scan
+        env:
+          REPO: eventflow/${{ matrix.service }}
+          IMAGE_TAG: ${{ needs.check.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          aws ecr wait image-scan-complete \
+            --repository-name "$REPO" \
+            --image-id "imageTag=$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --no-cli-pager
+
+      - name: Show scan severity counts
+        env:
+          REPO: eventflow/${{ matrix.service }}
+          IMAGE_TAG: ${{ needs.check.outputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          aws ecr describe-image-scan-findings \
+            --repository-name "$REPO" \
+            --image-id "imageTag=$IMAGE_TAG" \
+            --region "$AWS_REGION" \
+            --query 'imageScanFindings.findingSeverityCounts' \
+            --output json \
+            --no-cli-pager
