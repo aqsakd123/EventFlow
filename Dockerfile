@@ -17,7 +17,7 @@ COPY apps/registration-service/src apps/registration-service/src
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -q -gs maven-settings.xml -pl "${SERVICE}" -am package -DskipTests
 
-FROM eclipse-temurin:21-jre AS runtime
+FROM eclipse-temurin:21-jre-jammy AS runtime
 ARG SERVICE
 ARG PORT=8080
 WORKDIR /app

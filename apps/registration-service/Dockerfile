@@ -7,7 +7,7 @@ COPY apps/registration-service/pom.xml apps/registration-service/pom.xml
 COPY apps/registration-service/src apps/registration-service/src
 RUN mvn -B -gs maven-settings.xml -pl apps/registration-service -am package -DskipTests
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 COPY --from=build /workspace/apps/registration-service/target/app.jar app.jar
 USER 10001

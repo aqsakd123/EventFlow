@@ -7,7 +7,7 @@ COPY apps/registration-service/pom.xml apps/registration-service/pom.xml
 COPY apps/api-gateway/src apps/api-gateway/src
 RUN mvn -B -gs maven-settings.xml -pl apps/api-gateway -am package -DskipTests
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 COPY --from=build /workspace/apps/api-gateway/target/app.jar app.jar
 USER 10001
