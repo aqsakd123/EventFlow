@@ -266,3 +266,11 @@ runbook historical hiện chưa khớp trực tiếp service name event-db-prima
 
 Các deferred item cụ thể và mức evidence được duy trì trong [TODO.md](TODO.md). Đừng nâng một
 claim từ VERIFIED LOCAL lên production capability nếu chưa có evidence tương ứng.
+
+## GitHub Actions CI/CD
+
+`.github/workflows/build-push.yml` authenticates to AWS with GitHub OIDC, builds the three
+service images with immutable commit-SHA tags, and pushes them to ECR. It runs on pushes to
+`main` and checks for new commits daily at 08:00 Asia/Ho_Chi_Minh; a scheduled run skips
+when no commit was made in the previous 24 hours. ECR repositories and the
+`github-ecr-push` OIDC role must be provisioned separately.

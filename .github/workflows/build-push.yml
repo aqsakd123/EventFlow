@@ -1,6 +1,8 @@
 name: build-push
 
 on:
+  push:
+    branches: [main]
   schedule:
     # 08:00 every day in Asia/Ho_Chi_Minh (UTC+7).
     - cron: '0 1 * * *'
