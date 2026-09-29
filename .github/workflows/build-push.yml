@@ -159,17 +159,39 @@ jobs:
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           echo "$REPO:$IMAGE_TAG -> $DIGEST"
 
-      - name: Wait for ECR image scan
+      - name: Wait for ECR scan findings
         env:
           REPO: eventflow/${{ matrix.service }}
           IMAGE_TAG: ${{ needs.check.outputs.commit_sha }}
         run: |
           set -euo pipefail
-          aws ecr wait image-scan-complete \
-            --repository-name "$REPO" \
-            --image-id "imageTag=$IMAGE_TAG" \
-            --region "$AWS_REGION" \
-            --no-cli-pager
+          max_attempts=60
+          delay_seconds=5
+          error_file=$(mktemp)
+          trap 'rm -f "$error_file"' EXIT
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            if findings=$(aws ecr describe-image-scan-findings \
+              --repository-name "$REPO" \
+              --image-id "imageTag=$IMAGE_TAG" \
+              --region "$AWS_REGION" \
+              --output json \
+              --no-cli-pager 2>"$error_file"); then
+              if jq -e '.imageScanFindings.findingSeverityCounts != null' >/dev/null <<<"$findings"; then
+                echo "ECR scan findings are available after $attempt attempt(s)."
+                exit 0
+              fi
+            fi
+
+            if [[ "$attempt" -eq "$max_attempts" ]]; then
+              echo "ECR scan findings were not available after $((max_attempts * delay_seconds)) seconds." >&2
+              cat "$error_file" >&2
+              exit 1
+            fi
+
+            echo "ECR scan is not ready (attempt $attempt/$max_attempts); retrying in ${delay_seconds}s."
+            sleep "$delay_seconds"
+          done
 
       - name: Show scan severity counts
         env:
