@@ -108,8 +108,10 @@ public class EventApplicationService {
     public EventDtos.EventResponse get(UUID id, HttpServletRequest servletRequest) {
         Actor actor = actor(servletRequest);
         actor.requireWorkspace();
-        EventReadRouter.Selection selection = readRouter.select(servletRequest, true);
-        var requiredVersion = consistencyPins.minimumVersion(servletRequest);
+        ReadConsistencyPolicy policy = ReadConsistencyPolicy.from(servletRequest);
+        EventReadRouter.Selection selection = readRouter.select(servletRequest, true, id.toString());
+        var requiredVersion = policy.mode() == ReadRoutingMode.VERSION_LSN && policy.requireEntityVersion()
+                ? consistencyPins.minimumVersion(servletRequest) : java.util.OptionalLong.empty();
         EventRow row = findOrNull(id, selection.jdbc());
         if (row == null && !selection.primary() && requiredVersion.isPresent()) {
             row = findOrNull(id, readRouter.fallbackToWriter(servletRequest, "entity-not-replayed").jdbc());

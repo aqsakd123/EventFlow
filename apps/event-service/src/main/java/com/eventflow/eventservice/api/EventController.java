@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.eventflow.eventservice.service.EventApplicationService;
 import com.eventflow.eventservice.service.ConsistencyPinRegistry;
 import com.eventflow.eventservice.service.EventReadRouter;
+import com.eventflow.eventservice.service.ReadConsistency;
+import com.eventflow.eventservice.service.ReadRoutingMode;
 
 @RestController
 @RequestMapping("/api/v1/events")
@@ -41,10 +43,11 @@ public class EventController {
     EventDtos.EventResponse create(@Valid @RequestBody EventDtos.CreateEventRequest request,
                                    HttpServletRequest servletRequest, HttpServletResponse response) {
         EventDtos.EventResponse created = service.create(request, servletRequest);
-        consistencyPins.recordCommittedWrite(servletRequest, created.version()).writeTo(response);
+        consistencyPins.recordCommittedWrite(servletRequest, "event", created.id().toString(), created.version()).writeTo(response);
         return created;
     }
 
+    @ReadConsistency(mode = ReadRoutingMode.OFF, scope = "event-list")
     @GetMapping
     List<EventDtos.EventResponse> list(HttpServletRequest servletRequest, HttpServletResponse response) {
         List<EventDtos.EventResponse> events = service.list(servletRequest);
@@ -52,6 +55,7 @@ public class EventController {
         return events;
     }
 
+    @ReadConsistency(mode = ReadRoutingMode.VERSION_LSN, scope = "event", requireEntityVersion = true)
     @GetMapping("/{eventId}")
     EventDtos.EventResponse get(@PathVariable UUID eventId, HttpServletRequest servletRequest,
                                 HttpServletResponse response) {
@@ -64,7 +68,7 @@ public class EventController {
     EventDtos.EventResponse update(@PathVariable UUID eventId, @Valid @RequestBody EventDtos.UpdateEventRequest request,
                                    HttpServletRequest servletRequest, HttpServletResponse response) {
         EventDtos.EventResponse updated = service.update(eventId, request, servletRequest);
-        consistencyPins.recordCommittedWrite(servletRequest, updated.version()).writeTo(response);
+        consistencyPins.recordCommittedWrite(servletRequest, "event", updated.id().toString(), updated.version()).writeTo(response);
         return updated;
     }
 
@@ -72,7 +76,7 @@ public class EventController {
     EventDtos.EventResponse publish(@PathVariable UUID eventId, HttpServletRequest servletRequest,
                                     HttpServletResponse response) {
         EventDtos.EventResponse published = service.publish(eventId, servletRequest);
-        consistencyPins.recordCommittedWrite(servletRequest, published.version()).writeTo(response);
+        consistencyPins.recordCommittedWrite(servletRequest, "event", published.id().toString(), published.version()).writeTo(response);
         return published;
     }
 
@@ -80,7 +84,7 @@ public class EventController {
     EventDtos.EventResponse cancel(@PathVariable UUID eventId, HttpServletRequest servletRequest,
                                    HttpServletResponse response) {
         EventDtos.EventResponse cancelled = service.cancel(eventId, servletRequest);
-        consistencyPins.recordCommittedWrite(servletRequest, cancelled.version()).writeTo(response);
+        consistencyPins.recordCommittedWrite(servletRequest, "event", cancelled.id().toString(), cancelled.version()).writeTo(response);
         return cancelled;
     }
 

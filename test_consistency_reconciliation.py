@@ -133,15 +133,16 @@ def main() -> int:
         **actor,
         "X-EventFlow-Min-LSN": lsn,
         "X-EventFlow-Min-Version": version,
-        "X-EventFlow-Write-Pin-Until": receipt["x-eventflow-write-pin-until"],
+        "X-EventFlow-Consistency-Scope": receipt["x-eventflow-consistency-scope"],
+        "X-EventFlow-Entity-Key": receipt["x-eventflow-entity-key"],
     }
     _, immediate_headers = expect(
         request("GET", f"{args.gateway_url}/api/v1/events/{event_id}", causal),
         200,
-        "immediate causal read",
+        "causal read",
     )
-    if immediate_headers.get("x-eventflow-db-route") != "primary":
-        raise ScenarioFailure(f"write pin did not route to primary: {immediate_headers}")
+    if immediate_headers.get("x-eventflow-db-route") not in {"primary", "replica-1", "replica-2", "replica-3"}:
+        raise ScenarioFailure(f"causal read returned an unknown route: {immediate_headers}")
 
     time.sleep(3.5)
     _, replica_headers = expect(

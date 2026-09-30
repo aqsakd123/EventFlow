@@ -6,6 +6,7 @@ import json
 import sys
 import time
 import subprocess
+import uuid
 
 from test_scenarios import (
     Scenario,
@@ -42,6 +43,7 @@ def compose(action: str, compose_file: str = "docker-compose.consistency.yml") -
 
 
 def run() -> None:
+    run_id = uuid.uuid4().hex[:8]
     scenario = Scenario("http://localhost:28181", "docker", 10000, "eventflow")
     organizer = headers("p0-organizer", "workspace-1", "ORGANIZER")
     participant = headers("p0-participant", "workspace-1", "PARTICIPANT")
@@ -62,7 +64,7 @@ def run() -> None:
         blocked = scenario.request(
             "POST",
             f"/api/v1/events/{stale_rsvp_id}/registrations",
-            {**participant, "Idempotency-Key": "p0-stale-rsvp-key"},
+            {**participant, "Idempotency-Key": f"p0-{run_id}-stale-rsvp-key"},
         )
         scenario.expect_error(blocked, 409, "REGISTRATION_CLOSED", "stale projection RSVP guard")
         rows = scenario.db_query(
@@ -79,7 +81,7 @@ def run() -> None:
     stale_checkin_id = stale_checkin["id"]
     publish_and_wait_projection(scenario, stale_checkin_id, organizer)
     wait_projection(scenario, stale_checkin_id, "PUBLISHED")
-    register_when_ready(scenario, stale_checkin_id, participant, "p0-stale-checkin-rsvp")
+    register_when_ready(scenario, stale_checkin_id, participant, f"p0-{run_id}-stale-checkin-rsvp")
 
     compose("stop")
     try:

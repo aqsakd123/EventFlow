@@ -56,18 +56,34 @@ public class EventReadRouter {
     }
 
     public Selection select(HttpServletRequest request, boolean singleAggregateRead) {
+        return select(request, singleAggregateRead, null);
+    }
+
+    public Selection select(HttpServletRequest request, boolean singleAggregateRead, String entityKey) {
         if (replicas.isEmpty()) return writer(request, "routing-disabled");
-        if (pins.isPinned(request)) return writer(request, "write-pin");
-        if (pins.hasInvalidLsn(request)) return writer(request, "invalid-lsn");
-        if (pins.hasInvalidVersion(request)) return writer(request, "invalid-version");
-        boolean hasLsn = pins.requiredLsn(request) != null;
-        boolean hasVersion = pins.minimumVersion(request).isPresent();
-        if (hasLsn != hasVersion) return writer(request, "incomplete-causal-hint");
-        if (!singleAggregateRead && pins.minimumVersion(request).isPresent()) {
-            return writer(request, "version-not-applicable");
+
+        ReadConsistencyPolicy policy = ReadConsistencyPolicy.from(request);
+        if (policy.mode() == ReadRoutingMode.PRIMARY_PIN
+                && pins.isPinned(request, policy.scope(), entityKey)) {
+            return writer(request, "write-pin");
         }
 
-        String requiredLsn = pins.requiredLsn(request);
+        String requiredLsn = null;
+        if (policy.mode() == ReadRoutingMode.VERSION_LSN) {
+            if (pins.hasInvalidLsn(request)) return writer(request, "invalid-lsn");
+            if (pins.hasInvalidVersion(request)) return writer(request, "invalid-version");
+            if (pins.requiredLsn(request) == null) return writer(request, "missing-lsn");
+            if (!pins.matchesReceiptScope(request, policy.scope(), entityKey, policy.requireEntityVersion())) {
+                return writer(request, "scope-mismatch");
+            }
+            if (policy.requireEntityVersion() && pins.minimumVersion(request).isEmpty()) {
+                return writer(request, "missing-version");
+            }
+            if (policy.requireEntityVersion() && !singleAggregateRead) {
+                return writer(request, "version-not-applicable");
+            }
+            requiredLsn = pins.requiredLsn(request);
+        }
         int start = Math.floorMod(cursor.getAndIncrement(), replicas.size());
         for (int offset = 0; offset < replicas.size(); offset++) {
             Replica replica = replicas.get((start + offset) % replicas.size());

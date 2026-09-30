@@ -28,6 +28,8 @@ public class ConsistencyPinRegistry {
     public static final String ENTITY_VERSION_HEADER = "X-EventFlow-Entity-Version";
     public static final String PIN_UNTIL_HEADER = "X-EventFlow-Write-Pin-Until";
     public static final String SESSION_HEADER = "X-EventFlow-Consistency-Session";
+    public static final String SCOPE_HEADER = "X-EventFlow-Consistency-Scope";
+    public static final String ENTITY_KEY_HEADER = "X-EventFlow-Entity-Key";
 
     private static final Pattern LSN = Pattern.compile("(?i)^[0-9a-f]{1,16}/[0-9a-f]{1,16}$");
 
@@ -45,7 +47,7 @@ public class ConsistencyPinRegistry {
         this.clock = clock;
     }
 
-    public Receipt recordCommittedWrite(HttpServletRequest request, long entityVersion) {
+    public Receipt recordCommittedWrite(HttpServletRequest request, String scope, String entityKey, long entityVersion) {
         Instant pinUntil = clock.instant().plus(WRITE_PIN);
         String lsn = null;
         try {
@@ -56,13 +58,13 @@ public class ConsistencyPinRegistry {
             // A successful business commit must not become HTTP 500 merely
             // because its optional consistency receipt could not be created.
         }
-        pins.put(sessionKey(request), new Pin(lsn, entityVersion, pinUntil));
-        return new Receipt(lsn, entityVersion, pinUntil);
+        pins.put(pinKey(request, scope, entityKey), new Pin(lsn, entityVersion, pinUntil));
+        return new Receipt(lsn, entityVersion, pinUntil, scope, entityKey);
     }
 
-    public boolean isPinned(HttpServletRequest request) {
-        if (headerPinIsActive(request)) return true;
-        String key = sessionKey(request);
+    public boolean isPinned(HttpServletRequest request, String scope, String entityKey) {
+        if (headerPinIsActive(request, scope, entityKey)) return true;
+        String key = pinKey(request, scope, entityKey);
         Pin pin = pins.get(key);
         if (pin == null) return false;
         if (clock.instant().isBefore(pin.until())) return true;
@@ -70,9 +72,10 @@ public class ConsistencyPinRegistry {
         return false;
     }
 
-    private boolean headerPinIsActive(HttpServletRequest request) {
+    private boolean headerPinIsActive(HttpServletRequest request, String scope, String entityKey) {
         String value = request.getHeader(PIN_UNTIL_HEADER);
         if (value == null || requiredLsn(request) == null || minimumVersion(request).isEmpty()) return false;
+        if (!matchesReceiptScope(request, scope, entityKey, entityKey != null)) return false;
         try {
             Instant now = clock.instant();
             Instant until = Instant.parse(value);
@@ -84,6 +87,12 @@ public class ConsistencyPinRegistry {
         }
     }
 
+    public boolean matchesReceiptScope(HttpServletRequest request, String scope, String entityKey,
+                                       boolean requireEntityKey) {
+        if (!java.util.Objects.equals(scope, request.getHeader(SCOPE_HEADER))) return false;
+        return !requireEntityKey || (entityKey != null && java.util.Objects.equals(entityKey,
+                request.getHeader(ENTITY_KEY_HEADER)));
+    }
     public String requiredLsn(HttpServletRequest request) {
         String value = request.getHeader(MIN_LSN_HEADER);
         return value != null && LSN.matcher(value.trim()).matches() ? value.trim().toUpperCase() : null;
@@ -135,11 +144,18 @@ public class ConsistencyPinRegistry {
         return value == null ? "anonymous" : value;
     }
 
+    private String pinKey(HttpServletRequest request, String scope, String entityKey) {
+        return sessionKey(request) + ":scope:" + (scope == null ? "global" : scope)
+                + ":entity:" + (entityKey == null ? "*" : entityKey);
+    }
+
     private record Pin(String lsn, long version, Instant until) { }
 
-    public record Receipt(String lsn, long version, Instant pinUntil) {
+    public record Receipt(String lsn, long version, Instant pinUntil, String scope, String entityKey) {
         public void writeTo(HttpServletResponse response) {
             if (lsn != null) response.setHeader(COMMIT_LSN_HEADER, lsn);
+            response.setHeader(SCOPE_HEADER, scope);
+            if (entityKey != null) response.setHeader(ENTITY_KEY_HEADER, entityKey);
             response.setHeader(ENTITY_VERSION_HEADER, Long.toString(version));
             response.setHeader(PIN_UNTIL_HEADER, pinUntil.toString());
         }

@@ -65,38 +65,63 @@ Responses expose X-EventFlow-DB-Route and, for replica reads, X-EventFlow-Replay
 eventflow.database.read.routes records target and bounded fallback reason; it does not label user
 or raw LSN.
 
-### Version + LSN causal contract
+### Explicit read-routing policy
 
-Successful Event writes query pg_current_wal_flush_lsn() only after the service transaction has
-returned and committed. They return:
+The policy is selected server-side with @ReadConsistency; client headers never enable a stronger
+mode by themselves. Resolution is method annotation, then controller-class annotation, then the
+default OFF.
+
+~~~java
+@GetMapping("/{eventId}")
+@ReadConsistency(
+    mode = ReadRoutingMode.VERSION_LSN,
+    scope = "event",
+    requireEntityVersion = true
+)
+~~~
+
+The three modes are:
+
+| Mode | Behavior |
+|---|---|
+| OFF | Ignore causal LSN/version/pin headers. Use a healthy replica and accept replica staleness. |
+| VERSION_LSN | Require a valid X-EventFlow-Min-LSN; for single-entity reads this endpoint also requires entity version. A replica is eligible only after replaying at least that LSN and the returned row version is sufficient. Missing/invalid LSN, version or scope/entity receipt mismatch falls back to primary. |
+| PRIMARY_PIN | Honor the scoped short-lived primary pin created by a write receipt. While the pin is active, route to primary; after expiry, normal replica eligibility applies. |
+
+Current Event endpoints deliberately demonstrate two policies:
+
+- list GET /api/v1/events: OFF;
+- detail GET /api/v1/events/{eventId}: VERSION_LSN, scope event, entity version required.
+
+A write receipt contains:
 
 ~~~text
 X-EventFlow-Commit-LSN
 X-EventFlow-Entity-Version
+X-EventFlow-Consistency-Scope
+X-EventFlow-Entity-Key
 X-EventFlow-Write-Pin-Until
 ~~~
 
-The client echoes them as:
+For VERSION_LSN, echo the first four values as:
 
 ~~~text
 X-EventFlow-Min-LSN: <commit LSN>
 X-EventFlow-Min-Version: <entity version>
-X-EventFlow-Write-Pin-Until: <received value>
+X-EventFlow-Consistency-Scope: <same scope>
+X-EventFlow-Entity-Key: <same entity key>
 ~~~
 
-For the first **3 seconds** (Duration.ofSeconds(3)), the read is pinned to the writer. At exactly
-3 seconds the pin has expired. The router may then use only a replica whose replay LSN has reached
-the requested LSN. A single-resource read also checks the returned row version and falls back to
-the writer if it is behind or the row has not replayed yet. Supplying only one member of the
-LSN/version pair is treated conservatively and routes to the writer.
-
-The server keeps a short in-memory session pin and also accepts the echoed receipt so the behavior
-survives application load balancing. The pin header is clamped to at most 3 seconds from the
-receiving server clock. It is a routing hint, not authorization; a forged value can at most force
-a short writer read. Application nodes therefore need normal clock synchronization.
+The service transaction commits before X-EventFlow-Commit-LSN is read. A single-resource read
+also checks the returned row version and falls back to the writer if it is behind or the row has
+not replayed yet. The default write pin is 3 seconds. The pin header is clamped to at most 3
+seconds from the receiving server clock; it is a routing hint, not authorization. Application
+nodes therefore need normal clock synchronization.
 
 This is read-your-write routing, not a promise that asynchronous replication lag is always below
-3 seconds.
+3 seconds. The local lab uses raw echo headers; production deployments should replace them with
+a signed/scoped receipt or trusted gateway context before allowing cross-node clients to supply
+causal thresholds.
 
 ## Reconciliation model
 

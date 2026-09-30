@@ -76,6 +76,7 @@ jobs:
           python test_negative.py --compose-file "$COMPOSE_FILE" --reconciliation-key "$EVENT_RECONCILIATION_INTERNAL_KEY"
           python test_consistency_reconciliation.py \
             --compose-file "$COMPOSE_FILE" --reconciliation-key "$EVENT_RECONCILIATION_INTERNAL_KEY"
+          python test_read_consistency_matrix.py --compose-file "$COMPOSE_FILE"
           python test_consistency_second_round.py
           python test_p0.py
           python test_degrade.py

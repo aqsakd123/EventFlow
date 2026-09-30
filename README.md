@@ -210,11 +210,12 @@ credential/Keycloak fixture.
 |---|---|---|
 | mvn -B -gs maven-settings.xml clean verify | Build và Java test | Command an toàn nhất để kiểm tra nhanh source hiện tại |
 | test_consistency_reconciliation.py | Consistency Compose active | Scenario destructive đối với lab: dừng replica/Rabbit và tạo fixture |
+| test_read_consistency_matrix.py | Consistency Compose active | Ma trận OFF/VERSION_LSN, LSN threshold và scope mismatch fallback |
 | test_consistency_second_round.py | Consistency Compose active | Tạo 201 fixture rows và kiểm tra auth/CAS/fairness |
 | test_p0.py | Source-state guard trên consistency lab | Set COMPOSE_FILE = docker-compose.consistency.yml trước khi chạy |
 | test_metrics.py | Metric endpoint Docker hiện hành | Dùng default 28081/28082; các flag URL trong runbook historical hiện không được script parse |
 | test_jwt.py | JWT qua Keycloak | Dùng K8s hoặc restored historical Compose; không chạy trực tiếp với manifest consistency |
-| test_scenarios.py, test_degrade.py | Scenario historical | Không tương thích trực tiếp topology mới vì hard-code service event-db cũ |
+| test_scenarios.py, test_negative.py, test_degrade.py | Consistency Compose active | E2E, negative security/media/quarantine và dependency degrade |
 | test_resilience.py, kafka-replay.ps1 | Failure/replay drill | Cần đọc precondition; thao tác queue/Kafka/analytics có thể destructive |
 
 Ví dụ chạy source-state guard với PowerShell:
