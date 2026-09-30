@@ -8,6 +8,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -17,6 +18,7 @@ class DegradeFailure(AssertionError):
 
 
 BASE_URL = "http://localhost:28181"
+COMPOSE_FILE = os.environ.get("COMPOSE_FILE", "docker-compose.consistency.yml")
 ORGANIZER = {"X-User-Id": "degrade-organizer", "X-Workspace-Id": "degrade-workspace", "X-Roles": "ORGANIZER"}
 PARTICIPANT = {"X-User-Id": "degrade-participant", "X-Workspace-Id": "degrade-workspace", "X-Roles": "PARTICIPANT"}
 
@@ -45,10 +47,10 @@ def command(args: list[str], timeout: int = 30) -> str:
 
 
 def db_query(database: str, sql: str) -> str:
-    service = "event-db" if database == "event" else "registration-db"
+    service = "event-db-primary" if database == "event" else "registration-db"
     db_name = "eventflow_event" if database == "event" else "eventflow_registration"
     return command([
-        "docker", "compose", "exec", "-T", service, "psql",
+        "docker", "compose", "-f", COMPOSE_FILE, "exec", "-T", service, "psql",
         "-U", "eventflow", "-d", db_name, "-tAc", sql,
     ])
 
@@ -135,14 +137,14 @@ def rsvp(event_id: str) -> tuple[int, Any]:
 
 
 def rabbit_degrade() -> dict[str, Any]:
-    command(["docker", "compose", "stop", "rabbitmq"])
+    command(["docker", "compose", "-f", COMPOSE_FILE, "stop", "rabbitmq"])
     try:
         event_id = create_and_publish("rabbit-degrade-" + uuid.uuid4().hex[:8])
         unsent = wait_for_unsent(event_id, "RABBIT")
         status, body = rsvp(event_id)
         expect_code(status, body, 404, "EVENT_PROJECTION_NOT_READY", "RSVP during Rabbit outage")
     finally:
-        command(["docker", "compose", "start", "rabbitmq"])
+        command(["docker", "compose", "-f", COMPOSE_FILE, "start", "rabbitmq"])
     projection = wait_for(
         lambda: db_query("registration", f"SELECT event_status FROM event_projections WHERE event_id = '{event_id}'")
         if db_query("registration", f"SELECT event_status FROM event_projections WHERE event_id = '{event_id}'") == "PUBLISHED" else "",
@@ -162,7 +164,7 @@ def kafka_degrade() -> dict[str, Any]:
     wait_for_outbox_idle("KAFKA")
     wait_for_analytics_stable()
     baseline = int(db_query("registration", "SELECT count(*) FROM analytics_event_ledger"))
-    command(["docker", "compose", "stop", "kafka"])
+    command(["docker", "compose", "-f", COMPOSE_FILE, "stop", "kafka"])
     try:
         event_id = create_and_publish("kafka-degrade-" + uuid.uuid4().hex[:8])
         unsent = wait_for_unsent(event_id, "KAFKA")
@@ -177,10 +179,10 @@ def kafka_degrade() -> dict[str, Any]:
         if analytics_while_down != baseline:
             raise DegradeFailure(f"Kafka-down analytics changed unexpectedly: {baseline} -> {analytics_while_down}")
     finally:
-        command(["docker", "compose", "start", "kafka"])
+        command(["docker", "compose", "-f", COMPOSE_FILE, "start", "kafka"])
     wait_for(
         lambda: command([
-            "docker", "compose", "exec", "-T", "kafka",
+            "docker", "compose", "-f", COMPOSE_FILE, "exec", "-T", "kafka",
             "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "kafka:9092",
             "--describe", "--topic", "eventflow.domain-events",
         ]),

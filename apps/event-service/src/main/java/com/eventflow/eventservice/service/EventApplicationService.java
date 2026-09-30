@@ -222,7 +222,6 @@ public class EventApplicationService {
         return new EventDtos.UploadSessionResponse(mediaId, key, signed.url().toString(), Instant.now().plus(presignTtl));
     }
 
-    @Transactional
     public EventDtos.FinalizeMediaResponse finalizeMedia(UUID eventId, UUID mediaId, HttpServletRequest servletRequest) {
         Actor actor = actor(servletRequest);
         requireOrganizer(actor);

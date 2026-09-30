@@ -31,6 +31,8 @@ services:
       POSTGRES_DB: eventflow_event
       POSTGRES_USER: ${POSTGRES_USER:-eventflow}
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
+      REPLICATION_USER: ${REPLICATION_USER:-eventflow_replica}
+      REPLICATION_PASSWORD: "${REPLICATION_PASSWORD:?copy .env.example to .env}"
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
     ports:
       - "55432:5432"

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 import subprocess
 import sys
 import uuid
@@ -15,7 +17,7 @@ COMPOSE = "docker-compose.consistency.yml"
 GATEWAY = "http://localhost:28181"
 EVENT = "http://localhost:28081"
 REGISTRATION = "http://localhost:28082"
-KEY = "local-reconciliation-key"
+KEY = os.environ.get("EVENT_RECONCILIATION_INTERNAL_KEY", "local-reconciliation-key")
 
 
 class CheckFailure(AssertionError):
@@ -129,11 +131,51 @@ def main() -> int:
     if route_headers.get("x-eventflow-db-route") != "primary":
         raise CheckFailure(f"version-only route: {route_headers}")
 
-    main_event_id = "a9741dca-f670-4153-9bac-ac50c236cde3"
-    main_internal = {
-        "X-EventFlow-Reconciliation-Key": KEY,
-        "X-Workspace-Id": "ha-workspace",
-    }
+    main_event_body = {**event_body, "title": "Second-round convergence fixture", "capacity": 12}
+    main_created, _ = expect(
+        request("POST", f"{GATEWAY}/api/v1/events", actor, main_event_body),
+        201,
+        "main convergence fixture create",
+    )
+    main_event_id = main_created["id"]
+    main_internal = internal
+    expect(
+        request("POST", f"{GATEWAY}/api/v1/events/{main_event_id}/publish", actor),
+        200,
+        "main convergence fixture publish",
+    )
+    for _ in range(60):
+        seed_result = request(
+            "PATCH", f"{REGISTRATION}/internal/reconciliation/events/{main_event_id}/chaos",
+            main_internal, {},
+        )
+        if seed_result[0] == 200:
+            break
+        time.sleep(0.5)
+    else:
+        raise CheckFailure(f"main projection seed failed: {seed_result}")
+    compose("stop", "rabbitmq")
+    try:
+        expect(
+            request("POST", f"{GATEWAY}/api/v1/events/{main_event_id}/cancel", actor),
+            200,
+            "main convergence fixture cancel",
+        )
+        expect(
+            request("PATCH", f"{REGISTRATION}/internal/reconciliation/events/{main_event_id}/chaos",
+                    main_internal, {"capacity": 8, "status": "ENDED", "registrationOpen": False}),
+            200,
+            "main divergent projection mutation",
+        )
+        report, _ = expect(
+            request("POST", f"{REGISTRATION}/internal/reconciliation/run", main_internal, {}),
+            200,
+            "main reconciliation",
+        )
+    finally:
+        compose("start", "rabbitmq")
+    if report["failed"] or report["quarantined"] or report["resolved"] < 1:
+        raise CheckFailure(f"main reconciliation report: {report}")
     source, _ = expect(
         request("GET", f"{EVENT}/internal/reconciliation/events/{main_event_id}", main_internal),
         200,

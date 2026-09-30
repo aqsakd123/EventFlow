@@ -30,9 +30,9 @@ def wait_projection(scenario: Scenario, event_id: str, state: str) -> None:
     )
 
 
-def compose(action: str) -> None:
+def compose(action: str, compose_file: str = "docker-compose.consistency.yml") -> None:
     completed = subprocess.run(
-        ["docker", "compose", action, "rabbitmq"],
+        ["docker", "compose", "-f", compose_file, action, "rabbitmq"],
         capture_output=True,
         text=True,
         timeout=30,

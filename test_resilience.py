@@ -11,6 +11,7 @@ import base64
 import json
 import os
 import subprocess
+import shutil
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -19,6 +20,8 @@ from urllib.request import Request, urlopen
 
 class DrillFailure(AssertionError):
     pass
+
+COMPOSE_FILE = os.environ.get("COMPOSE_FILE", "docker-compose.consistency.yml")
 
 
 def management_request(base_url: str, user: str, password: str, method: str,
@@ -45,6 +48,8 @@ def management_request(base_url: str, user: str, password: str, method: str,
 
 
 def run_command(command: list[str], timeout: int = 120) -> str:
+    if command[:2] == ["docker", "compose"]:
+        command = command[:2] + ["-f", COMPOSE_FILE] + command[2:]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
     if completed.returncode != 0:
         raise DrillFailure(f"command failed ({completed.returncode}): {' '.join(command)}\n{completed.stderr.strip()}")
@@ -142,8 +147,9 @@ def kafka_restart_replay_drill(args: argparse.Namespace) -> dict[str, Any]:
     if after_restart != before:
         raise DrillFailure(f"analytics changed/lost data after Kafka restart: before={before}, after={after_restart}")
 
+    replay_shell = "powershell.exe" if shutil.which("powershell.exe") else "pwsh"
     replay = run_command([
-        "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        replay_shell, "-NoProfile", "-ExecutionPolicy", "Bypass",
         "-File", "kafka-replay.ps1", "-ConfirmLocalReset",
     ])
     wait_for_snapshot(before)
@@ -160,9 +166,9 @@ def kafka_restart_replay_drill(args: argparse.Namespace) -> dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rabbit-url", default="http://localhost:15673")
-    parser.add_argument("--rabbit-user", default=os.environ.get("RABBITMQ_USERNAME"))
-    parser.add_argument("--rabbit-password", default=os.environ.get("RABBITMQ_PASSWORD"))
+    parser.add_argument("--rabbit-url", default="http://localhost:15672")
+    parser.add_argument("--rabbit-user", default=os.environ.get("RABBITMQ_USERNAME", "eventflow"))
+    parser.add_argument("--rabbit-password", default=os.environ.get("RABBITMQ_PASSWORD", "replace-me-rabbitmq"))
     parser.add_argument("--kafka-topic", default="eventflow.domain-events")
     args = parser.parse_args()
     if not args.rabbit_user or not args.rabbit_password:

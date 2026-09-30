@@ -36,11 +36,12 @@ class ScenarioFailure(AssertionError):
 
 
 class Scenario:
-    def __init__(self, base_url: str, runtime: str, latency_budget_ms: int, kube_context: str):
+    def __init__(self, base_url: str, runtime: str, latency_budget_ms: int, kube_context: str, compose_file: str = "docker-compose.consistency.yml"):
         self.base_url = base_url.rstrip("/")
         self.runtime = runtime
         self.latency_budget_ms = latency_budget_ms
         self.kube_context = kube_context
+        self.compose_file = compose_file
         self.results: list[HttpResult] = []
 
     def request(self, method: str, path: str, headers: dict[str, str], body: Any = None) -> HttpResult:
@@ -89,9 +90,9 @@ class Scenario:
 
     def db_query(self, database: str, sql: str) -> str:
         if self.runtime == "docker":
-            service = "event-db" if database == "event" else "registration-db"
+            service = "event-db-primary" if database == "event" else "registration-db"
             db_name = "eventflow_event" if database == "event" else "eventflow_registration"
-            command = ["docker", "compose", "exec", "-T", service, "psql", "-U", "eventflow", "-d", db_name, "-tAc", sql]
+            command = ["docker", "compose", "-f", self.compose_file, "exec", "-T", service, "psql", "-U", "eventflow", "-d", db_name, "-tAc", sql]
         else:
             pod = self.command(["kubectl", "--context", self.kube_context, "--insecure-skip-tls-verify=true",
                                 "-n", "eventflow", "get", "pods", "-l", f"app={'event-db' if database == 'event' else 'registration-db'}",
@@ -233,7 +234,7 @@ def run_media_scenario(scenario: Scenario, event_id: str, organizer: dict[str, s
     signed_url = upload["uploadUrl"]
     parsed = urlsplit(signed_url)
     if parsed.hostname == "localstack":
-        signed_url = urlunsplit((parsed.scheme, "localhost:4567", parsed.path, parsed.query, parsed.fragment))
+        signed_url = urlunsplit((parsed.scheme, "localhost:4566", parsed.path, parsed.query, parsed.fragment))
     request = Request(signed_url, data=b"demo", headers={"Content-Type": "image/png"}, method="PUT")
     started = perf_counter()
     try:
@@ -252,7 +253,7 @@ def run_media_scenario(scenario: Scenario, event_id: str, organizer: dict[str, s
 
 
 def run(args: argparse.Namespace) -> None:
-    scenario = Scenario(args.base_url, args.runtime, args.latency_budget_ms, args.kube_context)
+    scenario = Scenario(args.base_url, args.runtime, args.latency_budget_ms, args.kube_context, args.compose_file)
     organizer = headers("organizer-1", "workspace-1", "ORGANIZER")
     participant = headers("participant-1", "workspace-1", "PARTICIPANT")
     second_participant = headers("participant-2", "workspace-1", "PARTICIPANT")
@@ -442,6 +443,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default="http://localhost:28181")
     parser.add_argument("--runtime", choices=("docker", "k8s"), default="docker")
     parser.add_argument("--kube-context", default="eventflow")
+    parser.add_argument("--compose-file", default="docker-compose.consistency.yml")
     parser.add_argument("--latency-budget-ms", type=int, default=10000)
     parser.add_argument("--rsvp-concurrency", type=int, default=101)
     parser.add_argument("--rsvp-capacity", type=int, default=100)

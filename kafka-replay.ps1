@@ -3,6 +3,7 @@ param(
     [ValidateSet("docker", "k8s")]
     [string]$Runtime = "docker",
     [string]$KubeContext = "eventflow",
+    [string]$ComposeFile = "docker-compose.consistency.yml",
     [string]$Topic = "eventflow.domain-events",
     [string]$ConsumerGroup = "eventflow-analytics",
     [switch]$ConfirmLocalReset
@@ -43,11 +44,11 @@ $consumerGroupArgs = @(
 )
 
 if ($Runtime -eq "docker") {
-    Invoke-Checked "docker" @("compose", "stop", "registration-service") | Out-Null
-    Invoke-Checked "docker" @("compose", "exec", "-T", "registration-db", "psql", "-U", "eventflow",
+    Invoke-Checked "docker" @("compose", "-f", $ComposeFile, "stop", "registration-service") | Out-Null
+    Invoke-Checked "docker" @("compose", "-f", $ComposeFile, "exec", "-T", "registration-db", "psql", "-U", "eventflow",
         "-d", "eventflow_registration", "-c", $truncate) | Out-Null
-    Invoke-Checked "docker" (@("compose", "exec", "-T", "kafka") + $consumerGroupArgs) | Out-Null
-    Invoke-Checked "docker" @("compose", "start", "registration-service") | Out-Null
+    Invoke-Checked "docker" (@("compose", "-f", $ComposeFile, "exec", "-T", "kafka") + $consumerGroupArgs) | Out-Null
+    Invoke-Checked "docker" @("compose", "-f", $ComposeFile, "start", "registration-service") | Out-Null
 } else {
     $kubectlPrefix = @("--context", $KubeContext, "--insecure-skip-tls-verify=true")
     $dbPod = Invoke-Checked "kubectl" ($kubectlPrefix + @(

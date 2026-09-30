@@ -468,13 +468,15 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: api-gateway, namespace: eventflow}
-spec:
-  type: LoadBalancer
+metadata:
+  name: api-gateway
+  namespace: eventflow
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
     service.beta.kubernetes.io/aws-load-balancer-type: external
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+spec:
+  type: LoadBalancer
   selector: {app: api-gateway}
   ports: [{port: 8080, targetPort: 8080, nodePort: 30080}]
 ---

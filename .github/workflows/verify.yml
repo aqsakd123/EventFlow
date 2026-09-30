@@ -1,0 +1,92 @@
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eventflow-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_FILE: docker-compose.consistency.yml
+  EVENT_RECONCILIATION_INTERNAL_KEY: replace-me-reconciliation
+
+jobs:
+  verify:
+    name: Unit and integration verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Prepare local configuration
+        shell: bash
+        run: cp .env.example .env
+
+      - name: Maven unit tests
+        run: mvn -B -gs maven-settings.xml clean verify
+
+      - name: Validate Compose manifest
+        run: docker compose -f "$COMPOSE_FILE" config --quiet
+
+      - name: Build and start integration stack
+        run: docker compose -f "$COMPOSE_FILE" up -d --build
+
+      - name: Wait for application health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://localhost:28181/actuator/health >/dev/null \
+              && curl --fail --silent http://localhost:28081/actuator/health >/dev/null \
+              && curl --fail --silent http://localhost:28082/actuator/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f "$COMPOSE_FILE" ps
+          exit 1
+
+      - name: Run black-box E2E and integration suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python test_scenarios.py --base-url http://localhost:28181 --runtime docker \
+            --compose-file "$COMPOSE_FILE" --rsvp-concurrency 101 --rsvp-capacity 100
+          python test_negative.py --compose-file "$COMPOSE_FILE" --reconciliation-key "$EVENT_RECONCILIATION_INTERNAL_KEY"
+          python test_consistency_reconciliation.py \
+            --compose-file "$COMPOSE_FILE" --reconciliation-key "$EVENT_RECONCILIATION_INTERNAL_KEY"
+          python test_consistency_second_round.py
+          python test_p0.py
+          python test_degrade.py
+          python test_metrics.py
+          python test_resilience.py
+          python test_network_partition.py --compose-file "$COMPOSE_FILE"
+
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f "$COMPOSE_FILE" logs --no-color --tail=300
+
+      - name: Tear down integration stack
+        if: always()
+        run: docker compose -f "$COMPOSE_FILE" down -v --remove-orphans
