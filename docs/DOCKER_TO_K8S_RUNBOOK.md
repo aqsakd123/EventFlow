@@ -155,9 +155,11 @@ kubectl --context eventflow --insecure-skip-tls-verify=true get nodes
 docker build --pull --no-cache -t eventflow/api-gateway:0.1.0 -f apps/api-gateway/Dockerfile .
 docker build --pull --no-cache -t eventflow/event-service:0.1.0 -f apps/event-service/Dockerfile .
 docker build --pull --no-cache -t eventflow/registration-service:0.1.0 -f apps/registration-service/Dockerfile .
+docker build --pull --no-cache -t eventflow/postgres-replica:0.1.0 -f infra/postgres/replica/Dockerfile infra/postgres/replica
 minikube image load --profile eventflow eventflow/api-gateway:0.1.0
 minikube image load --profile eventflow eventflow/event-service:0.1.0
 minikube image load --profile eventflow eventflow/registration-service:0.1.0
+minikube image load --profile eventflow eventflow/postgres-replica:0.1.0
 # Render the template with values from .env before applying; do not apply all.yaml directly.
 # Example in Git Bash/WSL:
 set -a; . ./.env; set +a
@@ -168,7 +170,7 @@ kubectl --context eventflow --insecure-skip-tls-verify=true -n eventflow exec de
 kubectl --context eventflow --insecure-skip-tls-verify=true -n eventflow exec deployment/kafka -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic eventflow.domain-events
 ~~~
 
-The manifest uses imagePullPolicy Never for app images and init containers waiting for
+The manifest uses imagePullPolicy Never for app and replica images and init containers waiting for
 PostgreSQL before Flyway. The stateless app tier has two replicas, PDB minAvailable=1,
 `DB_POOL_SIZE=30`, and startup probes for slow cold starts. Expected final state: 12 pods
 (six dependency/stateful pods plus six app replicas), all 1/1 Running after startup.

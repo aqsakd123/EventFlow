@@ -61,8 +61,8 @@ def run(args: argparse.Namespace) -> None:
     try:
         scenario.command([
             "docker", "compose", "-f", args.compose_file, "exec", "-T", "event-db-primary", "psql",
-            "-U", "eventflow", "-d", "eventflow_event", "-v", "ON_ERROR_STOP=1", "-c",
-            "WITH target AS (SELECT id FROM outbox_messages WHERE aggregate_id = '" + event_id + "' AND channel = 'RABBIT' ORDER BY created_at DESC LIMIT 1) UPDATE outbox_messages SET status = 'PENDING', attempts = 0, last_error = NULL, updated_at = now() WHERE id IN (SELECT id FROM target)",
+            "-U", "eventflow", "-d", "eventflow", "-v", "ON_ERROR_STOP=1", "-c",
+            "SET search_path TO event_service; WITH target AS (SELECT id FROM outbox_messages WHERE aggregate_id = '" + event_id + "' AND channel = 'RABBIT' ORDER BY created_at DESC LIMIT 1) UPDATE outbox_messages SET status = 'PENDING', attempts = 0, last_error = NULL, updated_at = now() WHERE id IN (SELECT id FROM target)",
         ])
         time.sleep(2)
         pending = scenario.db_query(

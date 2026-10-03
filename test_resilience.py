@@ -107,9 +107,9 @@ def rabbit_dlq_drill(args: argparse.Namespace) -> dict[str, Any]:
 
 def analytics_snapshot() -> str:
     return run_command([
-        "docker", "compose", "exec", "-T", "registration-db", "psql",
-        "-U", "eventflow", "-d", "eventflow_registration", "-tAc",
-        "SELECT (SELECT count(*) FROM analytics_event_ledger) || ':' || COALESCE((SELECT sum(metric_value) FROM analytics_projection), 0)",
+        "docker", "compose", "exec", "-T", "event-db-primary", "psql",
+        "-U", "eventflow", "-d", "eventflow", "-tAc",
+        "SET search_path TO registration_service; SELECT (SELECT count(*) FROM analytics_event_ledger) || ':' || COALESCE((SELECT sum(metric_value) FROM analytics_projection), 0)",
     ])
 
 

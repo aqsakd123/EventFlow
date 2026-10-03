@@ -104,8 +104,8 @@ def run(args: argparse.Namespace) -> None:
             "services:\n"
             "  event-service:\n"
             "    environment:\n"
-            "      SPRING_DATASOURCE_URL: jdbc:postgresql://event-db-replica-1:5432/eventflow_event\n"
-            "      EVENT_DB_READ_REPLICA_URLS: jdbc:postgresql://event-db-replica-2:5432/eventflow_event,jdbc:postgresql://event-db-replica-3:5432/eventflow_event\n"
+            "      SPRING_DATASOURCE_URL: jdbc:postgresql://event-db-replica-1:5432/eventflow?currentSchema=event_service\n"
+            "      EVENT_DB_READ_REPLICA_URLS: ""\n"
         )
 
     promoted = False
@@ -114,19 +114,19 @@ def run(args: argparse.Namespace) -> None:
         streaming = sql(
             args.compose_file,
             "event-db-primary",
-            "eventflow_event",
+            "eventflow",
             "SELECT count(*) FROM pg_stat_replication WHERE state = 'streaming'",
         )
-        if int(streaming) != 3:
-            raise PromotionFailure(f"expected three streaming replicas before promotion, got {streaming!r}")
+        if int(streaming) != 1:
+            raise PromotionFailure(f"expected one streaming replica before promotion, got {streaming!r}")
 
         compose(args.compose_file, "stop", "event-db-primary")
         reset_needed = True
         compose(args.compose_file, "exec", "-T", "-u", "postgres", "event-db-replica-1", "pg_ctl",
                 "-D", "/var/lib/postgresql/data/pgdata", "promote", timeout=60)
         wait_for(
-            lambda: sql(args.compose_file, "event-db-replica-1", "eventflow_event", "SELECT pg_is_in_recovery()")
-            if sql(args.compose_file, "event-db-replica-1", "eventflow_event", "SELECT pg_is_in_recovery()") == "f" else "",
+            lambda: sql(args.compose_file, "event-db-replica-1", "eventflow", "SELECT pg_is_in_recovery()")
+            if sql(args.compose_file, "event-db-replica-1", "eventflow", "SELECT pg_is_in_recovery()") == "f" else "",
             "replica-1 promotion",
         )
         promoted = True
@@ -143,8 +143,8 @@ def run(args: argparse.Namespace) -> None:
         persisted = sql(
             args.compose_file,
             "event-db-replica-1",
-            "eventflow_event",
-            f"SELECT count(*) FROM events WHERE id = '{body['id']}'",
+            "eventflow",
+            "SET search_path TO event_service; SELECT count(*) FROM events WHERE id = '" + body['id'] + "'",
         )
         if persisted != "1":
             raise PromotionFailure(f"promoted writer did not persist application write: {persisted!r}")

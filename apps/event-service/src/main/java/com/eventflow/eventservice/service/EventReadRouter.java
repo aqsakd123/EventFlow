@@ -157,8 +157,8 @@ public class EventReadRouter {
     private List<Replica> createReplicas(String urls, String username, String password, int poolSize) {
         if (urls == null || urls.isBlank()) return List.of();
         String[] split = urls.split(",");
-        if (split.length != 3) {
-            throw new IllegalArgumentException("EVENT_DB_READ_REPLICA_URLS must contain exactly 3 comma-separated URLs");
+        if (split.length != 1) {
+            throw new IllegalArgumentException("EVENT_DB_READ_REPLICA_URLS must contain exactly 1 comma-separated URL");
         }
         List<Replica> created = new ArrayList<>();
         for (int index = 0; index < split.length; index++) {

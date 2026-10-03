@@ -28,7 +28,7 @@ services:
       - -c
       - wal_keep_size=256MB
     environment:
-      POSTGRES_DB: eventflow_event
+      POSTGRES_DB: eventflow
       POSTGRES_USER: ${POSTGRES_USER:-eventflow}
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
       REPLICATION_USER: ${REPLICATION_USER:-eventflow_replica}
@@ -40,7 +40,7 @@ services:
       - event-db-primary-data:/var/lib/postgresql/data
       - ./infra/postgres/primary/10-replication.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_event"]
+      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -52,50 +52,10 @@ services:
     volumes:
       - event-db-replica-1-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_event"]
+      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow"]
       interval: 2s
       timeout: 3s
       retries: 45
-
-  event-db-replica-2:
-    <<: *event-db-replica
-    ports:
-      - "55434:5432"
-    volumes:
-      - event-db-replica-2-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_event"]
-      interval: 2s
-      timeout: 3s
-      retries: 45
-
-  event-db-replica-3:
-    <<: *event-db-replica
-    ports:
-      - "55435:5432"
-    volumes:
-      - event-db-replica-3-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_event"]
-      interval: 2s
-      timeout: 3s
-      retries: 45
-
-  registration-db:
-    image: postgres:16.4
-    environment:
-      POSTGRES_DB: eventflow_registration
-      POSTGRES_USER: ${POSTGRES_USER:-eventflow}
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
-    ports:
-      - "55436:5432"
-    volumes:
-      - registration-db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U eventflow -d eventflow_registration"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
 
   rabbitmq:
     image: rabbitmq:3.13-management
@@ -153,12 +113,12 @@ services:
       context: .
       dockerfile: apps/event-service/Dockerfile
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://event-db-primary:5432/eventflow_event
+      SPRING_DATASOURCE_URL: jdbc:postgresql://event-db-primary:5432/eventflow?currentSchema=event_service
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-eventflow}
       SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-eventflow}
       RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD:?copy .env.example to .env}"
-      EVENT_DB_READ_REPLICA_URLS: jdbc:postgresql://event-db-replica-1:5432/eventflow_event,jdbc:postgresql://event-db-replica-2:5432/eventflow_event,jdbc:postgresql://event-db-replica-3:5432/eventflow_event
+      EVENT_DB_READ_REPLICA_URLS: jdbc:postgresql://event-db-replica-1:5432/eventflow?currentSchema=event_service
       RABBITMQ_HOST: rabbitmq
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       REGISTRATION_SERVICE_URL: http://registration-service:8082
@@ -175,10 +135,6 @@ services:
         condition: service_healthy
       event-db-replica-1:
         condition: service_healthy
-      event-db-replica-2:
-        condition: service_healthy
-      event-db-replica-3:
-        condition: service_healthy
       rabbitmq:
         condition: service_healthy
       kafka:
@@ -191,7 +147,7 @@ services:
       context: .
       dockerfile: apps/registration-service/Dockerfile
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://registration-db:5432/eventflow_registration
+      SPRING_DATASOURCE_URL: jdbc:postgresql://event-db-primary:5432/eventflow?currentSchema=registration_service
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-eventflow}
       SPRING_DATASOURCE_PASSWORD: "${POSTGRES_PASSWORD:?copy .env.example to .env}"
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-eventflow}
@@ -207,7 +163,7 @@ services:
     ports:
       - "127.0.0.1:28082:8082"
     depends_on:
-      registration-db:
+      event-db-primary:
         condition: service_healthy
       event-service:
         condition: service_started
@@ -235,6 +191,3 @@ services:
 volumes:
   event-db-primary-data:
   event-db-replica-1-data:
-  event-db-replica-2-data:
-  event-db-replica-3-data:
-  registration-db-data:

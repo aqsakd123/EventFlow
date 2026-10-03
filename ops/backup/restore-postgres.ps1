@@ -21,8 +21,9 @@ if (-not (Test-Path -LiteralPath $InputPath -PathType Leaf)) {
 if ($InputPath -match '[\r\n"]') {
     throw "InputPath must not contain quotes or newlines"
 }
-$service = if ($Database -eq "event") { "event-db" } else { "registration-db" }
-$dbName = if ($Database -eq "event") { "eventflow_event" } else { "eventflow_registration" }
+$service = "event-db-primary"
+$dbName = "eventflow"
+$schema = if ($Database -eq "event") { "event_service" } else { "registration_service" }
 $InputPath = [IO.Path]::GetFullPath($InputPath)
 
 if ($Runtime -eq "docker") {
@@ -31,7 +32,7 @@ if ($Runtime -eq "docker") {
 } else {
     $kubectlArgs = @("--context", $KubeContext)
     if ($InsecureSkipTlsVerify) { $kubectlArgs += "--insecure-skip-tls-verify=true" }
-    $podOutput = & kubectl @kubectlArgs -n eventflow get pods -l "app=$service" -o jsonpath="{.items[0].metadata.name}" 2>&1
+    $podOutput = & kubectl @kubectlArgs -n eventflow get pods -l "app=shared-db-primary" -o jsonpath="{.items[0].metadata.name}" 2>&1
     if ($LASTEXITCODE -ne 0) { throw "kubectl could not locate a pod for ${service}: $($podOutput -join ' ')" }
     $pod = ($podOutput -join "").Trim()
     if ([string]::IsNullOrWhiteSpace($pod)) { throw "No pod found for $service" }

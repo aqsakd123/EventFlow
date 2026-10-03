@@ -11,9 +11,9 @@ There are three application deployables. Identity is deliberately not a fourth c
 | Registration Service | local event projection, registration, capacity, attendance, inbox/outbox, analytics | event source-of-truth tables |
 | Keycloak/OIDC | identity, tokens, roles | EventFlow business data |
 
-## Why two databases
+## Why one shared database
 
-The local Compose stack uses two PostgreSQL containers to make ownership visible. A shared PostgreSQL instance can be used later, but database/schema/credential ownership must remain separate. Registration never joins Event Service tables.
+The local Compose stack uses one PostgreSQL database with two schemas: `event_service` and `registration_service`. This keeps table ownership and Flyway history separate while fitting the free-tier topology of one writer and one physical read replica. Registration never joins Event Service tables.
 
 ## Messaging split
 
@@ -56,8 +56,9 @@ registration queue ready depth, and Kafka consumer lag. PostgreSQL dump/restore 
 
 ## Known lab limits
 
-The optional consistency lab adds three physical read replicas only to Event DB. Registration DB
-stays single-writer for capacity/check-in invariants. The reconciliation worker converges the
+The consistency lab uses one physical read replica for the shared database. Event reads may route
+to the replica with causal fallback; Registration writes and capacity/check-in invariants stay on
+the primary. The reconciliation worker converges the
 existing events and event_projections copies with per-field HLC metadata; see
 CONSISTENCY_RECONCILIATION.md. Lab chaos writes are internal, feature-flagged and never routed
 through the Gateway.

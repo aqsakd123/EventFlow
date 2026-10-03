@@ -22,7 +22,7 @@ undo that external promise safely.
 
 The topology is therefore:
 
-- event_db: one writer and exactly three PostgreSQL 16 physical read replicas.
+- shared_db: one PostgreSQL writer and exactly one PostgreSQL 16 physical read replica; Event and Registration use separate schemas.
 - registration_db: one invariant-critical writer.
 - Reconciliation: application-level convergence between events and event_projections.
   A lab-only projection writer creates controlled divergence while the Rabbit link is down.
@@ -45,10 +45,10 @@ Mutations, Flyway, outbox, schedulers and internal invariant reads keep the norm
 JdbcTemplate. In particular, /internal/events/{id}/registration-state always reads the writer
 because it is the fail-safe check before RSVP/check-in.
 
-Configure exactly three comma-separated endpoints:
+Configure one read-replica endpoint:
 
 ~~~text
-EVENT_DB_READ_REPLICA_URLS=jdbc:postgresql://r1:5432/eventflow_event,jdbc:postgresql://r2:5432/eventflow_event,jdbc:postgresql://r3:5432/eventflow_event
+EVENT_DB_READ_REPLICA_URLS=jdbc:postgresql://shared-db-replica:5432/eventflow?currentSchema=event_service
 ~~~
 
 For every candidate the router checks:
@@ -59,7 +59,7 @@ pg_is_in_recovery() = true
 pg_last_wal_replay_lsn() >= requested commit LSN
 ~~~
 
-Healthy eligible replicas are selected round-robin. Wrong major version, promoted replica,
+The healthy eligible replica is selected; when it is unavailable or behind, reads fall back to the primary. Wrong major version, promoted replica,
 connection failure, invalid causal header, or insufficient replay LSN falls back to the writer.
 Responses expose X-EventFlow-DB-Route and, for replica reads, X-EventFlow-Replay-LSN. Metric
 eventflow.database.read.routes records target and bounded fallback reason; it does not label user
@@ -201,7 +201,7 @@ pg_basebackup -R and remain hot standbys. The scenario proves:
 
 - immediate read goes to primary during the 3-second pin;
 - after the pin, an LSN-caught-up replica serves the read;
-- loss of all three replicas falls back to primary;
+- loss of the read replica falls back to primary;
 - an incomplete version-only causal hint uses the writer;
 - unauthenticated internal reconciliation calls are rejected;
 - stopping Rabbit creates a data-flow partition;
@@ -219,12 +219,12 @@ remain writable while still replaying the old primary timeline.
 For the read-scaled Event database:
 
 1. Create an RDS for PostgreSQL 16 Multi-AZ writer.
-2. Add three read replicas and give the application each direct replica endpoint so it can check
+2. Add one read replica and give the application its direct endpoint so it can check
    each replay LSN. Multi-AZ standby is not counted as a query replica.
 3. Run Flyway only against the writer. Use private subnets/security groups, TLS
    sslmode=verify-full, separate read/write roles, and Secrets Manager-managed credentials,
    encryption, PITR, and alarms for replica lag/fallback rate.
-4. Canary one endpoint, then enable all three. A promoted replica returns
+4. Canary the single endpoint, then enable it. A promoted replica returns
    pg_is_in_recovery() = false and is automatically excluded from the reader pool.
 
 RDS PostgreSQL read replicas use asynchronous native streaming replication, so the application

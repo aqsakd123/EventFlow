@@ -6,7 +6,7 @@ spring:
   application:
     name: registration-service
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/eventflow_registration}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/eventflow?currentSchema=registration_service}
     username: ${SPRING_DATASOURCE_USERNAME:eventflow}
     password: ${SPRING_DATASOURCE_PASSWORD}
     hikari:
@@ -14,6 +14,9 @@ spring:
       connection-timeout: 2000
   flyway:
     enabled: true
+    schemas: ${SPRING_FLYWAY_SCHEMAS:registration_service}
+    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:registration_service}
+    create-schemas: true
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}

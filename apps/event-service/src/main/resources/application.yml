@@ -6,7 +6,7 @@ spring:
   application:
     name: event-service
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/eventflow_event}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/eventflow?currentSchema=event_service}
     username: ${SPRING_DATASOURCE_USERNAME:eventflow}
     password: ${SPRING_DATASOURCE_PASSWORD}
     hikari:
@@ -14,6 +14,9 @@ spring:
       connection-timeout: 2000
   flyway:
     enabled: true
+    schemas: ${SPRING_FLYWAY_SCHEMAS:event_service}
+    default-schema: ${SPRING_FLYWAY_DEFAULT_SCHEMA:event_service}
+    create-schemas: true
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
@@ -31,7 +34,7 @@ spring:
 
 eventflow:
   database:
-    # Empty keeps the original writer-only behavior. HA Docker supplies exactly three URLs.
+    # Empty keeps the original writer-only behavior. The shared DB topology supplies one URL.
     read-replica-urls: ${EVENT_DB_READ_REPLICA_URLS:}
     replica-username: ${EVENT_DB_REPLICA_USERNAME:${SPRING_DATASOURCE_USERNAME:eventflow}}
     replica-password: ${EVENT_DB_REPLICA_PASSWORD:${SPRING_DATASOURCE_PASSWORD}}

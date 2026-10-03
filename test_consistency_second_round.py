@@ -64,9 +64,10 @@ def compose(*args: str) -> str:
 
 
 def psql(service: str, database: str, sql: str) -> str:
+    schema = "registration_service" if "registration" in database or "registration" in service else "event_service"
     result = subprocess.run(
-        ["docker", "compose", "-f", COMPOSE, "exec", "-T", service,
-         "psql", "-U", "eventflow", "-d", database, "-At", "-c", sql],
+        ["docker", "compose", "-f", COMPOSE, "exec", "-T", "event-db-primary",
+         "psql", "-U", "eventflow", "-d", "eventflow", "-At", "-c", f"SET search_path TO {schema}; {sql}"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -233,7 +234,7 @@ def main() -> int:
             "fairness second page",
         )
         count = int(psql(
-            "registration-db", "eventflow_registration",
+            "event-db-primary", "eventflow",
             f"SELECT count(*) FROM event_projections WHERE workspace_id = '{fairness_workspace}'",
         ))
         if first_report != {"scanned": 200, "resolved": 200, "conflicts": 0,
@@ -252,7 +253,7 @@ def main() -> int:
             "projection-side revision write",
         )
         before = psql(
-            "registration-db", "eventflow_registration",
+            "event-db-primary", "eventflow",
             f"SELECT event_version || '|' || local_revision FROM event_projections WHERE event_id = '{first_id}'",
         )
         if before != "0|1":
@@ -263,7 +264,7 @@ def main() -> int:
             "projection CAS apply",
         )
         after = psql(
-            "registration-db", "eventflow_registration",
+            "event-db-primary", "eventflow",
             f"SELECT event_version || '|' || local_revision FROM event_projections WHERE event_id = '{first_id}'",
         )
         if after != "1|2":
@@ -272,7 +273,7 @@ def main() -> int:
             raise CheckFailure(f"projection CAS report: {third_report}")
 
         cas_probe = psql(
-            "registration-db", "eventflow_registration",
+            "event-db-primary", "eventflow",
             f"UPDATE event_projections SET capacity = capacity "
             f"WHERE event_id = '{first_id}' AND event_version = 999999 AND local_revision = 999999",
         )

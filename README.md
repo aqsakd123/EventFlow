@@ -21,7 +21,7 @@ oversell, outbox/messaging, S3-compatible media, OIDC và vận hành Docker/Kub
 | Phạm vi | Trạng thái | Nguồn xác minh / lưu ý |
 |---|---|---|
 | Ba application deployable, business flow, test Maven | **VERIFIED LOCAL** | Lần evidence mới nhất trong repo: 2026-09-21; xem [VERIFICATION_EVIDENCE](docs/VERIFICATION_EVIDENCE.md) |
-| Consistency: primary + 3 read replicas, causal read, reconciliation | **VERIFIED LOCAL** | Chạy bằng [docker-compose.consistency.yml](docker-compose.consistency.yml) |
+| Consistency: shared primary + 1 read replica, causal read, reconciliation | **VERIFIED LOCAL** | Chạy bằng [docker-compose.consistency.yml](docker-compose.consistency.yml) |
 | Docker/Minikube core flow, JWT, metric, backup/restore | **VERIFIED LOCAL** / **VERIFIED K8S** trong các vòng evidence trước | Xem [runbook](docs/DOCKER_TO_K8S_RUNBOOK.md); một số Docker command ở đó là historical |
 | AWS RDS/S3/EKS/IAM, managed-broker HA, CI/CD, RPO/RTO | **NOT RUN** / deferred | Xem [AWS_MANUAL_GAPS](docs/AWS_MANUAL_GAPS.md) và [TODO](TODO.md) |
 
@@ -38,7 +38,7 @@ Client --> API Gateway :8080 ------------+------------------+
              v                                                v
  Event Service :8081                                  Registration Service :8082
  - event lifecycle                                    - local event projection
- - event PostgreSQL (writer)                          - registration PostgreSQL
+ - shared PostgreSQL: event_service schema            - shared PostgreSQL: registration_service schema
  - media metadata / S3                                - RSVP, capacity, check-in
  - outbox                                              - inbox/outbox, analytics
        |       \                                           ^
@@ -58,12 +58,12 @@ Project chỉ có ba application deployable:
 | registration-service | Event projection, RSVP/capacity, idempotency, check-in, inbox/outbox, analytics | Event source-of-truth tables |
 | Keycloak | Identity, token và role claim | Dữ liệu EventFlow |
 
-Các boundary chi tiết, lý do tách hai database và giới hạn lab nằm trong
+Các boundary chi tiết, lý do tách schema và giới hạn lab nằm trong
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ### Invariant và mô hình dữ liệu quan trọng
 
-- Event Service và Registration Service sở hữu schema/database riêng; Registration Service không
+- Event Service và Registration Service sở hữu schema riêng trong cùng một PostgreSQL database; Registration Service không
   join trực tiếp bảng của Event Service.
 - PostgreSQL transaction là business truth. Mutation ghi outbox trong cùng transaction; relay tới
   RabbitMQ/Kafka là at-least-once, vì vậy consumer deduplicate theo messageId.
@@ -101,7 +101,7 @@ mvn -B -gs maven-settings.xml clean verify
 ### 2. Chạy manifest đang có trong repository
 
 Manifest thực thi hiện hành là [docker-compose.consistency.yml](docker-compose.consistency.yml).
-Nó chạy Event DB writer + đúng ba read replicas, Registration DB, RabbitMQ, Kafka, LocalStack và
+Nó chạy một shared PostgreSQL primary + đúng một physical read replica, hai schema logic (`event_service` và `registration_service`), RabbitMQ, Kafka, LocalStack và
 ba application service. Keycloak **không** có trong manifest này; Gateway chạy local header mode
 với OIDC_ENABLED=false.
 
@@ -121,8 +121,8 @@ trong Docker lab disposable, không dùng với dữ liệu cần giữ.
 | Gateway public | http://localhost:28181 |
 | Event Service (loopback-only) | http://127.0.0.1:28081 |
 | Registration Service (loopback-only) | http://127.0.0.1:28082 |
-| Event PostgreSQL writer / replicas | 55432 / 55433–55435 |
-| Registration PostgreSQL | 55436 |
+| Shared PostgreSQL primary / read replica | 55432 / 55433 |
+| Logical schemas | `event_service` / `registration_service` |
 | RabbitMQ AMQP / management | 5672 / 15672 |
 | Kafka / LocalStack | 9092 / 4566 |
 
@@ -238,7 +238,7 @@ runbook historical hiện chưa khớp trực tiếp service name event-db-prima
 | [PLAN_DETAIL.md](PLAN_DETAIL.md) | Scope, business contract, acceptance criteria, non-goals, Definition of Done | Nguồn yêu cầu chính |
 | [TODO.md](TODO.md) | Tiến độ, deferred work và định nghĩa mức evidence | Theo dõi backlog/trạng thái |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Boundary, ownership, messaging, invariant, security và lab limits | Đọc trước khi sửa design |
-| [docs/CONSISTENCY_RECONCILIATION.md](docs/CONSISTENCY_RECONCILIATION.md) | 3 replicas, causal LSN/version reads, HLC merge, active Docker scenario, AWS boundary | Tài liệu hiện hành cho consistency lab |
+| [docs/CONSISTENCY_RECONCILIATION.md](docs/CONSISTENCY_RECONCILIATION.md) | 1 shared read replica, causal LSN/version reads, HLC merge, active Docker scenario, AWS boundary | Tài liệu hiện hành cho consistency lab |
 | [docs/DOCKER_TO_K8S_RUNBOOK.md](docs/DOCKER_TO_K8S_RUNBOOK.md) | Docker/Minikube, OIDC, metrics, backup/restore, cleanup | Reference vận hành; Docker section là historical nếu không phục hồi manifest cũ |
 | [docs/DOCKER_COMPOSE_MANIFEST.md](docs/DOCKER_COMPOSE_MANIFEST.md) | Nội dung docker-compose.yml cũ | Archive/manual replay, không phải runtime default |
 | [docs/VERIFICATION_EVIDENCE.md](docs/VERIFICATION_EVIDENCE.md) | Lệnh và kết quả các vòng verification local/K8s | Evidence theo ngày; mục 2026-09-21 là summary mới nhất của consistency lab |
@@ -259,7 +259,7 @@ runbook historical hiện chưa khớp trực tiếp service name event-db-prima
 - Kafka/Rabbit/PostgreSQL HA production, AWS RDS/S3/EKS/IAM, CI/CD, secret rotation và AWS
   RPO/RTO vẫn chưa được chạy. Kubernetes lab có hai replica cho stateless app tier, nhưng stateful
   dependency là single-node và database dùng emptyDir.
-- Consistency lab là Docker-only: manifest Kubernetes hiện không có ba Event DB read replicas.
+- Consistency lab chạy trên cả Compose và Kubernetes với một shared primary + một read replica; đây vẫn là lab topology, không phải HA production.
 - `.env.example` liệt kê biến runtime local; `.env` không được commit. Bảng configuration canonical và OpenAPI request-response reference vẫn chưa có.
 - Các Docker script/tài liệu historical và manifest consistency không hoàn toàn cùng topology.
   README này đánh dấu rõ đường chạy active; trước khi chuẩn hóa automation, nên tạo một manifest

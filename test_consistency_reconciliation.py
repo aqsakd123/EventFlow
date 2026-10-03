@@ -141,7 +141,7 @@ def main() -> int:
         200,
         "causal read",
     )
-    if immediate_headers.get("x-eventflow-db-route") not in {"primary", "replica-1", "replica-2", "replica-3"}:
+    if immediate_headers.get("x-eventflow-db-route") not in {"primary", "replica-1"}:
         raise ScenarioFailure(f"causal read returned an unknown route: {immediate_headers}")
 
     time.sleep(3.5)
@@ -154,7 +154,7 @@ def main() -> int:
         raise ScenarioFailure(f"caught-up replica was not selected: {replica_headers}")
 
     # All replicas unavailable must degrade to the primary, never to a stale error.
-    replicas = ("event-db-replica-1", "event-db-replica-2", "event-db-replica-3")
+    replicas = ("event-db-replica-1",)
     command(args.compose_file, "stop", *replicas)
     try:
         _, fallback_headers = expect(

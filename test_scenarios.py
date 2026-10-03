@@ -89,17 +89,17 @@ class Scenario:
         raise ScenarioFailure(f"Timed out waiting for {description}; last={last!r}")
 
     def db_query(self, database: str, sql: str) -> str:
+        schema = "event_service" if database == "event" else "registration_service"
+        scoped_sql = f"SET search_path TO {schema}; {sql}"
         if self.runtime == "docker":
-            service = "event-db-primary" if database == "event" else "registration-db"
-            db_name = "eventflow_event" if database == "event" else "eventflow_registration"
-            command = ["docker", "compose", "-f", self.compose_file, "exec", "-T", service, "psql", "-U", "eventflow", "-d", db_name, "-tAc", sql]
+            command = ["docker", "compose", "-f", self.compose_file, "exec", "-T", "event-db-primary",
+                       "psql", "-U", "eventflow", "-d", "eventflow", "-tAc", scoped_sql]
         else:
             pod = self.command(["kubectl", "--context", self.kube_context, "--insecure-skip-tls-verify=true",
-                                "-n", "eventflow", "get", "pods", "-l", f"app={'event-db' if database == 'event' else 'registration-db'}",
+                                "-n", "eventflow", "get", "pods", "-l", "app=shared-db-primary",
                                 "-o", "jsonpath={.items[0].metadata.name}"])
-            db_name = "eventflow_event" if database == "event" else "eventflow_registration"
             command = ["kubectl", "--context", self.kube_context, "--insecure-skip-tls-verify=true",
-                       "-n", "eventflow", "exec", pod, "--", "psql", "-U", "eventflow", "-d", db_name, "-tAc", sql]
+                       "-n", "eventflow", "exec", pod, "--", "psql", "-U", "eventflow", "-d", "eventflow", "-tAc", scoped_sql]
         return self.command(command).strip()
 
     @staticmethod

@@ -207,11 +207,11 @@ def run(args: argparse.Namespace) -> None:
     quarantine_id = quarantine_event["id"]
     publish_and_wait_projection(scenario, quarantine_id, organizer)
     register_when_ready(scenario, quarantine_id, participant, f"negative-quarantine-{uuid.uuid4().hex}")
-    quarantine_sql = "ALTER TABLE event_projections DROP CONSTRAINT event_projections_capacity_check; UPDATE event_projections SET capacity = 0, sync_meta = jsonb_set(sync_meta, '{capacity}', to_jsonb('9999999999999:0:negative-test'::text), true), local_revision = local_revision + 1, updated_at = now() WHERE event_id = '" + quarantine_id + "'"
-    restore_sql = "UPDATE event_projections SET capacity = 1, local_revision = local_revision + 1, updated_at = now() WHERE event_id = '" + quarantine_id + "'; ALTER TABLE event_projections ADD CONSTRAINT event_projections_capacity_check CHECK (capacity > 0)"
+    quarantine_sql = "SET search_path TO registration_service; ALTER TABLE event_projections DROP CONSTRAINT event_projections_capacity_check; UPDATE event_projections SET capacity = 0, sync_meta = jsonb_set(sync_meta, '{capacity}', to_jsonb('9999999999999:0:negative-test'::text), true), local_revision = local_revision + 1, updated_at = now() WHERE event_id = '" + quarantine_id + "'"
+    restore_sql = "SET search_path TO registration_service; UPDATE event_projections SET capacity = 1, local_revision = local_revision + 1, updated_at = now() WHERE event_id = '" + quarantine_id + "'; ALTER TABLE event_projections ADD CONSTRAINT event_projections_capacity_check CHECK (capacity > 0)"
     scenario.command([
-        "docker", "compose", "-f", args.compose_file, "exec", "-T", "registration-db", "psql",
-        "-U", "eventflow", "-d", "eventflow_registration", "-v", "ON_ERROR_STOP=1", "-c", quarantine_sql,
+        "docker", "compose", "-f", args.compose_file, "exec", "-T", "event-db-primary", "psql",
+        "-U", "eventflow", "-d", "eventflow", "-v", "ON_ERROR_STOP=1", "-c", quarantine_sql,
     ])
     try:
         reconciliation_key = args.reconciliation_key
@@ -232,8 +232,8 @@ def run(args: argparse.Namespace) -> None:
             raise ScenarioFailure(f"quarantine changed invalid projection: {quarantined_state!r}")
     finally:
         scenario.command([
-            "docker", "compose", "-f", args.compose_file, "exec", "-T", "registration-db", "psql",
-            "-U", "eventflow", "-d", "eventflow_registration", "-v", "ON_ERROR_STOP=1", "-c", restore_sql,
+            "docker", "compose", "-f", args.compose_file, "exec", "-T", "event-db-primary", "psql",
+            "-U", "eventflow", "-d", "eventflow", "-v", "ON_ERROR_STOP=1", "-c", restore_sql,
         ])
     print(json.dumps({
         "status": "PASS",

@@ -34,7 +34,7 @@ function Invoke-Checked {
     return ($output -join [Environment]::NewLine)
 }
 
-$truncate = "TRUNCATE analytics_event_ledger, analytics_projection"
+$truncate = "SET search_path TO registration_service; TRUNCATE analytics_event_ledger, analytics_projection"
 $consumerGroupArgs = @(
     "/opt/kafka/bin/kafka-consumer-groups.sh",
     "--bootstrap-server", "kafka:9092",
@@ -45,14 +45,14 @@ $consumerGroupArgs = @(
 
 if ($Runtime -eq "docker") {
     Invoke-Checked "docker" @("compose", "-f", $ComposeFile, "stop", "registration-service") | Out-Null
-    Invoke-Checked "docker" @("compose", "-f", $ComposeFile, "exec", "-T", "registration-db", "psql", "-U", "eventflow",
-        "-d", "eventflow_registration", "-c", $truncate) | Out-Null
+    Invoke-Checked "docker" @("compose", "-f", $ComposeFile, "exec", "-T", "event-db-primary", "psql", "-U", "eventflow",
+        "-d", "eventflow", "-c", $truncate) | Out-Null
     Invoke-Checked "docker" (@("compose", "-f", $ComposeFile, "exec", "-T", "kafka") + $consumerGroupArgs) | Out-Null
     Invoke-Checked "docker" @("compose", "-f", $ComposeFile, "start", "registration-service") | Out-Null
 } else {
     $kubectlPrefix = @("--context", $KubeContext, "--insecure-skip-tls-verify=true")
     $dbPod = Invoke-Checked "kubectl" ($kubectlPrefix + @(
-        "-n", "eventflow", "get", "pods", "-l", "app=registration-db",
+        "-n", "eventflow", "get", "pods", "-l", "app=shared-db-primary",
         "-o", "jsonpath={.items[0].metadata.name}"
     ))
 
@@ -60,7 +60,7 @@ if ($Runtime -eq "docker") {
     Start-Sleep -Seconds 3
     Invoke-Checked "kubectl" ($kubectlPrefix + @(
         "-n", "eventflow", "exec", $dbPod, "--", "psql", "-U", "eventflow",
-        "-d", "eventflow_registration", "-c", $truncate
+        "-d", "eventflow", "-c", $truncate
     )) | Out-Null
     Invoke-Checked "kubectl" ($kubectlPrefix + @(
         "-n", "eventflow", "exec", "deployment/kafka", "--"

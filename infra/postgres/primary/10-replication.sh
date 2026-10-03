@@ -15,8 +15,14 @@ sql_escape_identifier() {
 escaped_user="$(sql_escape_literal "$REPLICATION_USER")"
 escaped_identifier="$(sql_escape_identifier "$REPLICATION_USER")"
 escaped_password="$(sql_escape_literal "$REPLICATION_PASSWORD")"
+escaped_postgres_identifier="$(sql_escape_identifier "$POSTGRES_USER")"
 existing_role="$(psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
     -Atc "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = '$escaped_user'")"
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+CREATE SCHEMA IF NOT EXISTS event_service AUTHORIZATION "$escaped_postgres_identifier";
+CREATE SCHEMA IF NOT EXISTS registration_service AUTHORIZATION "$escaped_postgres_identifier";
+EOSQL
 
 if [ "$existing_role" != "1" ]; then
     psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL

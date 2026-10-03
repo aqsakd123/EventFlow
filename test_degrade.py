@@ -47,11 +47,10 @@ def command(args: list[str], timeout: int = 30) -> str:
 
 
 def db_query(database: str, sql: str) -> str:
-    service = "event-db-primary" if database == "event" else "registration-db"
-    db_name = "eventflow_event" if database == "event" else "eventflow_registration"
+    schema = "event_service" if database == "event" else "registration_service"
     return command([
-        "docker", "compose", "-f", COMPOSE_FILE, "exec", "-T", service, "psql",
-        "-U", "eventflow", "-d", db_name, "-tAc", sql,
+        "docker", "compose", "-f", COMPOSE_FILE, "exec", "-T", "event-db-primary", "psql",
+        "-U", "eventflow", "-d", "eventflow", "-tAc", f"SET search_path TO {schema}; {sql}",
     ])
 
 
