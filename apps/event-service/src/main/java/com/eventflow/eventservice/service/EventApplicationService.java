@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -27,16 +28,27 @@ import org.springframework.transaction.annotation.Transactional;
 
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedGetObjectRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedUploadPartRequest;
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignRequest;
 
 @Service
 public class EventApplicationService {
     private static final long MAX_MEDIA_SIZE = 5 * 1024 * 1024;
+    private static final int MULTIPART_PART_SIZE = 5 * 1024 * 1024;
     private static final List<String> MEDIA_TYPES = List.of("image/png", "image/jpeg", "image/webp", "application/pdf");
 
     private final JdbcTemplate jdbc;
@@ -224,6 +236,109 @@ public class EventApplicationService {
         return new EventDtos.UploadSessionResponse(mediaId, key, signed.url().toString(), Instant.now().plus(presignTtl));
     }
 
+    @Transactional
+    public EventDtos.MultipartUploadSessionResponse createMultipartUploadSession(
+            UUID eventId, EventDtos.UploadSessionRequest request, HttpServletRequest servletRequest) {
+        Actor actor = actor(servletRequest);
+        requireOrganizer(actor);
+        owned(eventId, actor);
+        validateMedia(request);
+
+        UUID mediaId = UUID.randomUUID();
+        String key = "tenant/%s/events/%s/%s".formatted(actor.workspaceId(), eventId, mediaId);
+        String contentType = request.contentType().toLowerCase();
+        var created = s3Client.createMultipartUpload(CreateMultipartUploadRequest.builder()
+                .bucket(bucket).key(key).contentType(contentType).build());
+        String uploadId = created.uploadId();
+        int partCount = (int) Math.ceil((double) request.size() / MULTIPART_PART_SIZE);
+        Instant expiresAt = Instant.now().plus(presignTtl);
+
+        try {
+            jdbc.update("""
+                    INSERT INTO event_media (id, event_id, workspace_id, object_key, expected_content_type,
+                        expected_size, upload_id, multipart_part_size, state, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_UPLOAD', now())
+                    """, mediaId, eventId, actor.workspaceId(), key, contentType, request.size(),
+                    uploadId, MULTIPART_PART_SIZE);
+
+            List<EventDtos.MultipartUploadPart> parts = new java.util.ArrayList<>();
+            for (int partNumber = 1; partNumber <= partCount; partNumber++) {
+                UploadPartRequest uploadPart = UploadPartRequest.builder()
+                        .bucket(bucket).key(key).uploadId(uploadId).partNumber(partNumber).build();
+                UploadPartPresignRequest presign = UploadPartPresignRequest.builder()
+                        .signatureDuration(presignTtl).uploadPartRequest(uploadPart).build();
+                PresignedUploadPartRequest signed = s3Presigner.presignUploadPart(presign);
+                parts.add(new EventDtos.MultipartUploadPart(partNumber, signed.url().toString(), expiresAt));
+            }
+            return new EventDtos.MultipartUploadSessionResponse(mediaId, key, uploadId,
+                    MULTIPART_PART_SIZE, parts, expiresAt);
+        } catch (RuntimeException exception) {
+            try {
+                s3Client.abortMultipartUpload(builder -> builder.bucket(bucket).key(key).uploadId(uploadId));
+            } catch (RuntimeException ignored) {
+                // Best-effort cleanup for this lightweight implementation.
+            }
+            throw exception;
+        }
+    }
+
+    public EventDtos.FinalizeMediaResponse completeMultipartUpload(
+            UUID eventId, UUID mediaId, EventDtos.MultipartCompleteRequest request,
+            HttpServletRequest servletRequest) {
+        Actor actor = actor(servletRequest);
+        requireOrganizer(actor);
+        owned(eventId, actor);
+        MultipartRow multipart = jdbc.query("""
+                SELECT object_key, upload_id, state FROM event_media
+                WHERE id = ? AND event_id = ? AND workspace_id = ?
+                """, (rs, rowNum) -> new MultipartRow(rs.getString("object_key"), rs.getString("upload_id"),
+                        rs.getString("state")), mediaId, eventId, actor.workspaceId())
+                .stream().findFirst().orElseThrow(() -> ApiException.notFound("MEDIA_NOT_FOUND", "Media was not found"));
+        if (multipart.uploadId() == null || !"PENDING_UPLOAD".equals(multipart.state())) {
+            throw ApiException.conflict("MEDIA_UPLOAD_NOT_ACTIVE", "Multipart upload is not active");
+        }
+
+        List<CompletedPart> completedParts = request.parts().stream()
+                .sorted(Comparator.comparingInt(EventDtos.MultipartPart::partNumber))
+                .map(part -> CompletedPart.builder().partNumber(part.partNumber()).eTag(part.etag()).build())
+                .toList();
+        s3Client.completeMultipartUpload(CompleteMultipartUploadRequest.builder()
+                .bucket(bucket).key(multipart.objectKey()).uploadId(multipart.uploadId())
+                .multipartUpload(CompletedMultipartUpload.builder().parts(completedParts).build())
+                .build());
+        return finalizeMedia(eventId, mediaId, servletRequest);
+    }
+
+    public EventDtos.DownloadUrlResponse createDownloadUrl(UUID eventId, UUID mediaId,
+                                                           HttpServletRequest servletRequest) {
+        Actor actor = actor(servletRequest);
+        EventRow event = owned(eventId, actor);
+        if (!"PUBLISHED".equals(event.status()) && !actor.hasAny("OWNER", "ORGANIZER")) {
+            throw ApiException.forbidden("EVENT_NOT_PUBLIC", "Only published events are downloadable");
+        }
+        DownloadMediaRow media = jdbc.query("""
+                SELECT object_key, state, actual_content_type, actual_size FROM event_media
+                WHERE id = ? AND event_id = ? AND workspace_id = ?
+                """, (rs, rowNum) -> new DownloadMediaRow(rs.getString("object_key"), rs.getString("state"),
+                        rs.getString("actual_content_type"), rs.getLong("actual_size")),
+                mediaId, eventId, actor.workspaceId())
+                .stream().findFirst().orElseThrow(() -> ApiException.notFound("MEDIA_NOT_FOUND", "Media was not found"));
+        if (!"READY".equals(media.state())) {
+            throw ApiException.conflict("MEDIA_NOT_READY", "Media is not ready for download");
+        }
+        GetObjectRequest get = GetObjectRequest.builder().bucket(bucket).key(media.objectKey()).build();
+        GetObjectPresignRequest presign = GetObjectPresignRequest.builder()
+                .signatureDuration(presignTtl).getObjectRequest(get).build();
+        PresignedGetObjectRequest signed = s3Presigner.presignGetObject(presign);
+        return new EventDtos.DownloadUrlResponse(mediaId, signed.url().toString(),
+                Instant.now().plus(presignTtl), media.contentType(), media.size());
+    }
+
+    private void validateMedia(EventDtos.UploadSessionRequest request) {
+        if (request.size() > MAX_MEDIA_SIZE || !MEDIA_TYPES.contains(request.contentType().toLowerCase())) {
+            throw ApiException.badRequest("MEDIA_NOT_ALLOWED", "Only supported media types up to 5 MiB are allowed");
+        }
+    }
     public EventDtos.FinalizeMediaResponse finalizeMedia(UUID eventId, UUID mediaId, HttpServletRequest servletRequest) {
         Actor actor = actor(servletRequest);
         requireOrganizer(actor);
@@ -351,6 +466,8 @@ public class EventApplicationService {
                             String status, boolean registrationOpen, long version, Map<String, String> syncMeta) { }
 
     private record MediaRow(String objectKey, String expectedContentType, long expectedSize) { }
+    private record MultipartRow(String objectKey, String uploadId, String state) { }
+    private record DownloadMediaRow(String objectKey, String state, String contentType, long size) { }
 
     private Map<String, String> stamped(Map<String, String> current, Set<String> fields) {
         Map<String, String> updated = new LinkedHashMap<>(current);

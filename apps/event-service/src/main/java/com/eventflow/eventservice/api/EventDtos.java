@@ -1,9 +1,11 @@
 package com.eventflow.eventservice.api;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import jakarta.validation.constraints.Min;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -48,4 +50,17 @@ public final class EventDtos {
     public record UploadSessionResponse(UUID mediaId, String objectKey, String uploadUrl, Instant expiresAt) { }
 
     public record FinalizeMediaResponse(UUID mediaId, String state, String objectKey, long actualSize, String contentType) { }
+
+    public record MultipartUploadPart(int partNumber, String uploadUrl, Instant expiresAt) { }
+
+    public record MultipartUploadSessionResponse(UUID mediaId, String objectKey, String uploadId,
+                                                 int partSize, List<MultipartUploadPart> parts,
+                                                 Instant expiresAt) { }
+
+    public record MultipartPart(@Min(1) int partNumber, @NotBlank String etag) { }
+
+    public record MultipartCompleteRequest(@NotNull @Size(min = 1) List<@Valid MultipartPart> parts) { }
+
+    public record DownloadUrlResponse(UUID mediaId, String downloadUrl, Instant expiresAt,
+                                     String contentType, long size) { }
 }

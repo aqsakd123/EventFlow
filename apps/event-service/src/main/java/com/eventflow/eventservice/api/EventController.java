@@ -95,6 +95,27 @@ public class EventController {
         return service.createUploadSession(eventId, request, servletRequest);
     }
 
+    @PostMapping("/{eventId}/media/multipart-upload-session")
+    @ResponseStatus(HttpStatus.CREATED)
+    EventDtos.MultipartUploadSessionResponse multipartUploadSession(
+            @PathVariable UUID eventId, @Valid @RequestBody EventDtos.UploadSessionRequest request,
+            HttpServletRequest servletRequest) {
+        return service.createMultipartUploadSession(eventId, request, servletRequest);
+    }
+
+    @PostMapping("/{eventId}/media/{mediaId}/multipart-complete")
+    EventDtos.FinalizeMediaResponse multipartComplete(
+            @PathVariable UUID eventId, @PathVariable UUID mediaId,
+            @Valid @RequestBody EventDtos.MultipartCompleteRequest request,
+            HttpServletRequest servletRequest) {
+        return service.completeMultipartUpload(eventId, mediaId, request, servletRequest);
+    }
+
+    @GetMapping("/{eventId}/media/{mediaId}/download-url")
+    EventDtos.DownloadUrlResponse downloadUrl(@PathVariable UUID eventId, @PathVariable UUID mediaId,
+                                              HttpServletRequest servletRequest) {
+        return service.createDownloadUrl(eventId, mediaId, servletRequest);
+    }
     @PostMapping("/{eventId}/media/{mediaId}/finalize")
     EventDtos.FinalizeMediaResponse finalizeMedia(@PathVariable UUID eventId, @PathVariable UUID mediaId,
                                                   HttpServletRequest servletRequest) {
