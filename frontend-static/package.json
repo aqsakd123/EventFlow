@@ -1,0 +1,9 @@
+{
+  "name": "eventflow-static-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "serve": "node server.mjs --root . --port 4173"
+  }
+}

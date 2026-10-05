@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="EventFlow API verification console">
+  <title>EventFlow / Static verification console</title>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary navigation">
+      <div class="brand"><span class="brand-mark">EF</span><span><strong>EventFlow</strong><small>static verification</small></span></div>
+      <button class="menu-toggle" id="menu-toggle" type="button" aria-expanded="false">Menu</button>
+      <nav id="primary-nav">
+        <button class="nav-item is-active" type="button" data-view-target="overview"><span>01</span> Overview</button>
+        <button class="nav-item" type="button" data-view-target="events"><span>02</span> Events</button>
+        <button class="nav-item" type="button" data-view-target="registrations"><span>03</span> Registrations</button>
+        <button class="nav-item" type="button" data-view-target="media"><span>04</span> Media lab</button>
+        <button class="nav-item" type="button" data-view-target="network"><span>05</span> Network + diagnostics</button>
+        <button class="nav-item" type="button" data-view-target="runbook"><span>06</span> Test runbook</button>
+      </nav>
+      <div class="sidebar-note"><span class="pulse-dot"></span><span>Local identity mode</span></div>
+    </aside>
+
+    <main id="main-content">
+      <header class="topbar">
+        <div><p class="eyebrow">AWS deployment rehearsal</p><h1 id="view-title">Control surface for the whole platform</h1></div>
+        <div class="topbar-actions"><button class="button button-small" id="run-e2e" type="button">Run E2E suite</button><span class="status-chip" id="connection-status"><i></i> Not checked</span><button class="icon-button" id="refresh-all" type="button" aria-label="Refresh current view">Refresh</button></div>
+      </header>
+
+      <section class="config-strip nm-inset" aria-labelledby="config-title">
+        <div class="strip-heading"><span class="section-kicker">01 / runtime</span><h2 id="config-title">Test identity and gateway</h2></div>
+        <div class="config-grid">
+          <label>Gateway base URL <input id="gateway-url" type="url" placeholder="blank = same-origin proxy"></label>
+          <label>User ID <input id="user-id" value="organizer-1" autocomplete="off"></label>
+          <label>Workspace ID <input id="workspace-id" value="workspace-1" autocomplete="off"></label>
+          <label>Roles <input id="roles" value="OWNER,ORGANIZER,PARTICIPANT,CHECKIN_STAFF" autocomplete="off"></label>
+          <button class="button button-primary" id="save-config" type="button">Save config</button>
+        </div>
+        <p class="helper" id="config-helper">Local server mode proxies /api and /__s3. Static hosting can load config.json (base or gatewayUrl) or use the Gateway URL field.</p>
+      </section>
+
+      <div class="view-stack">
+        <section class="view is-visible" data-view="overview" aria-labelledby="overview-title">
+          <div class="section-heading"><div><span class="section-kicker">02 / command center</span><h2 id="overview-title">Prove the three-service path</h2></div><button class="button button-secondary" id="overview-refresh" type="button">Run health sweep</button></div>
+          <div class="hero-grid">
+            <article class="hero-copy nm-raised"><span class="hero-label">End-to-end rehearsal</span><h3>Create an event, open the gate, reserve a seat, put a file in private S3.</h3><p>Use this page as a thin operator console. Every action maps to a real public API route, with request IDs and recoverable error states kept visible.</p><div class="hero-actions"><button class="button button-primary" data-jump="events" type="button">Start with events</button><button class="button button-ghost" data-jump="runbook" type="button">View runbook</button></div></article>
+            <div class="signal-orbit nm-inset" aria-label="System flow"><span class="orbit-node node-gateway">Gateway<small>:28181</small></span><span class="orbit-node node-event">Events<small>:28081</small></span><span class="orbit-node node-registration">RSVP<small>:28082</small></span><span class="orbit-center">AWS<br><small>flow</small></span></div>
+          </div>
+          <div class="metric-grid"><article class="metric-card nm-raised"><span>Gateway</span><strong id="metric-gateway">-</strong><small id="metric-gateway-detail">Run a sweep</small></article><article class="metric-card nm-raised"><span>Workspace events</span><strong id="metric-events">-</strong><small>Visible to current identity</small></article><article class="metric-card nm-raised"><span>Selected event</span><strong id="metric-selected">-</strong><small id="metric-selected-detail">Choose one to continue</small></article><article class="metric-card nm-raised"><span>Last request</span><strong id="metric-request">-</strong><small id="metric-request-detail">Correlation ID appears here</small></article></div>
+          <article class="panel nm-raised e2e-panel" aria-labelledby="e2e-title"><div class="panel-heading"><div><span class="section-kicker">Browser integration</span><h3 id="e2e-title">Static E2E test runner</h3></div><span class="tag tag-blue" id="e2e-summary">Click Run E2E suite</span></div><p class="helper">Runs the real Gateway lifecycle: event write, idempotent registration, check-in, private S3 upload, finalize, and weather.</p><ol class="e2e-results" id="e2e-results" aria-live="polite"><li class="e2e-case">No cases run yet.</li></ol></article>
+          <div class="two-column"><article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">API surface</span><h3>Coverage map</h3></div><span class="tag tag-blue">live contract</span></div><ul class="coverage-list"><li><span>Event lifecycle</span><b>create / update / publish / cancel</b></li><li><span>RSVP</span><b>register / mine / cancel / check-in</b></li><li><span>Private media</span><b>single + multipart presign</b></li><li><span>Operational edge</span><b>weather / errors / correlation</b></li></ul></article><article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">Last response</span><h3>Request console</h3></div><button class="text-button" id="copy-last" type="button">Copy JSON</button></div><pre class="response-box" id="last-response">No request yet.</pre></article></div>
+        </section>
+
+        <section class="view" data-view="events" aria-labelledby="events-title" hidden>
+          <div class="section-heading"><div><span class="section-kicker">03 / event service</span><h2 id="events-title">Shape the event lifecycle</h2><p class="lede">Exercise writer routing, versioned updates, publish/cancel transitions and the event outbox.</p></div><button class="button button-secondary" id="load-events" type="button">Load events</button></div>
+          <div class="two-column events-layout">
+            <article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">Create</span><h3>New event fixture</h3></div><span class="tag tag-amber">organizer</span></div><form id="create-event-form" class="form-grid"><label>Title<input name="title" value="AWS deployment rehearsal" required maxlength="200"></label><label>Description<textarea name="description" rows="3">A repeatable eventflow fixture for deployment testing.</textarea></label><div class="field-row"><label>Starts at<input name="startsAt" type="datetime-local" required></label><label>Ends at<input name="endsAt" type="datetime-local" required></label></div><div class="field-row"><label>Timezone<input name="timezone" value="Asia/Ho_Chi_Minh" required></label><label>Capacity<input name="capacity" type="number" min="1" value="20" required></label></div><button id="create-event-form-submit" class="button button-primary" type="submit">Create draft event</button></form></article>
+            <article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">Read and write</span><h3>Event inventory</h3></div><span class="tag tag-green" id="event-count-tag">0 loaded</span></div><div class="table-wrap"><table><thead><tr><th>Title</th><th>Status</th><th>Seats</th><th>Action</th></tr></thead><tbody id="events-table"><tr><td colspan="4" class="empty-cell">Load events to begin.</td></tr></tbody></table></div></article>
+          </div>
+          <article class="panel nm-raised selected-panel"><div class="panel-heading"><div><span class="section-kicker">Selected fixture</span><h3 id="selected-event-title">No event selected</h3></div><span class="tag" id="selected-event-status">-</span></div><div class="selected-meta" id="selected-event-meta">Select a row from the inventory.</div><div class="action-row"><button class="button button-primary" id="publish-event" type="button" disabled>Publish</button><button class="button button-danger" id="cancel-event" type="button" disabled>Cancel</button><button class="button button-secondary" id="open-media" type="button" disabled>Open media lab</button></div><form id="update-event-form" class="form-grid compact-form" hidden><div class="field-row"><label>Title<input name="title"></label><label>Capacity<input name="capacity" type="number" min="1"></label></div><div class="field-row"><label>Starts at<input name="startsAt" type="datetime-local"></label><label>Ends at<input name="endsAt" type="datetime-local"></label></div><input name="description" type="hidden"><input name="timezone" type="hidden"><input name="version" type="hidden"><button id="update-event-form-submit" class="button button-secondary" type="submit">Save versioned update</button></form></article>
+        </section>
+
+        <section class="view" data-view="registrations" aria-labelledby="registrations-title" hidden>
+          <div class="section-heading"><div><span class="section-kicker">04 / registration service</span><h2 id="registrations-title">Close the loop on a seat</h2><p class="lede">The selected event ID is shared with the RSVP, attendance and media flows.</p></div><button class="button button-secondary" id="refresh-registration" type="button">Refresh my RSVP</button></div>
+          <div class="two-column"><article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">Participant flow</span><h3>Reserve and release</h3></div><span class="tag tag-blue">Idempotent</span></div><div class="selected-id"><label>Event ID<input id="registration-event-id" placeholder="Select an event or paste UUID"></label><label>Idempotency key<input id="idempotency-key"></label></div><div class="action-grid"><button class="button button-primary" id="register-button" type="button">Register</button><button class="button button-secondary" id="mine-button" type="button">Get mine</button><button class="button button-danger" id="cancel-registration" type="button">Cancel mine</button></div><div class="result-card" id="registration-result">No registration response yet.</div></article>
+            <article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">Staff flow</span><h3>Attendance desk</h3></div><span class="tag tag-amber">staff role</span></div><div class="selected-id"><label>Participant ID<input id="participant-id" value="participant-1"></label></div><div class="action-grid"><button class="button button-primary" id="checkin-button" type="button">Check in</button><button class="button button-secondary" id="attendance-button" type="button">List attendance</button></div><div class="result-card" id="attendance-result">No attendance response yet.</div></article></div>
+        </section>
+
+        <section class="view" data-view="media" aria-labelledby="media-title" hidden>
+          <div class="section-heading"><div><span class="section-kicker">05 / private S3</span><h2 id="media-title">Make the object path observable</h2><p class="lede">Create a signed session, upload through the local S3 proxy, finalize metadata, then request a signed download URL.</p></div><span class="tag tag-green">private bucket</span></div>
+          <div class="two-column"><article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">Single PUT</span><h3>Small file upload</h3></div><span class="tag tag-blue">max 5 MiB</span></div><label>Event ID<input id="media-event-id" placeholder="Select an event or paste UUID"></label><label class="file-drop">File<input id="media-file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf"><small>PNG, JPEG, WEBP or PDF</small></label><div class="action-row"><button class="button button-primary" id="single-upload" type="button">Presign and upload</button><button class="button button-secondary" id="download-media" type="button">Download URL</button></div><div class="progress-track"><span id="media-progress"></span></div><div class="result-card" id="media-result">No media action yet.</div></article>
+            <article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">Multipart</span><h3>Part-by-part upload</h3></div><span class="tag tag-amber">same API, more hops</span></div><p class="helper">The backend currently caps media at 5 MiB, so this verifies the multipart control path with a small one-part fixture.</p><button class="button button-primary" id="multipart-upload" type="button">Presign multipart and complete</button><ol class="step-list" id="media-steps"><li>Waiting for a file</li><li>Waiting for presign</li><li>Waiting for upload</li><li>Waiting for completion</li></ol></article></div>
+        </section>
+
+        <section class="view" data-view="network" aria-labelledby="network-title" hidden>
+          <div class="section-heading"><div><span class="section-kicker">06 / gateway egress</span><h2 id="network-title">Inspect the network edge</h2><p class="lede">This calls the Gateway weather endpoint and preserves request/correlation IDs in the response console.</p></div><button class="button button-secondary" id="weather-button" type="button">Fetch current weather</button></div>
+          <div class="two-column"><article class="panel nm-raised weather-card"><div class="weather-sun">W</div><div><span class="section-kicker">Public egress</span><h3 id="weather-location">No location yet</h3><p id="weather-summary">The Gateway will ask its configured geolocation and weather providers.</p></div></article><article class="panel nm-raised"><div class="panel-heading"><div><span class="section-kicker">Diagnostics</span><h3>What to inspect</h3></div></div><ul class="coverage-list"><li><span>Request IDs</span><b>shown in the top bar and response</b></li><li><span>Gateway route</span><b>/api/v1/network/weather</b></li><li><span>Failure handling</span><b>retry after provider timeout</b></li><li><span>Production check</span><b>no secrets in browser storage</b></li></ul></article></div>
+        </section>
+
+        <section class="view" data-view="runbook" aria-labelledby="runbook-title" hidden>
+          <div class="section-heading"><div><span class="section-kicker">07 / repeatable proof</span><h2 id="runbook-title">Run the deployment rehearsal</h2><p class="lede">Use the same sequence against the static server, then against the React build served from the same proxy.</p></div></div>
+          <div class="runbook-grid"><article class="runbook-step nm-raised"><span>01</span><h3>Start the lab</h3><p>Run the consistency compose file. Confirm Gateway at <code>http://localhost:28181</code>.</p></article><article class="runbook-step nm-raised"><span>02</span><h3>Open identity</h3><p>Keep the default organizer headers. Use one workspace so event visibility and tenant checks are deterministic.</p></article><article class="runbook-step nm-raised"><span>03</span><h3>Create and publish</h3><p>Create a draft, load it, publish it, then use the selected UUID for all following panels.</p></article><article class="runbook-step nm-raised"><span>04</span><h3>RSVP and check-in</h3><p>Register twice with the same idempotency key. Confirm the second response is the same logical registration.</p></article><article class="runbook-step nm-raised"><span>05</span><h3>Upload privately</h3><p>Run both single PUT and multipart. Finalize, then open a signed download URL.</p></article><article class="runbook-step nm-raised"><span>06</span><h3>Switch frontend</h3><p>Repeat from the React production build. Watch the browser console and network panel for cross-origin or stale asset issues.</p></article></div>
+          <div class="notice"><strong>Safety note</strong><span>This console sends real writes to the configured local Gateway. Use a disposable workspace and never point the identity form at production credentials.</span></div>
+        </section>
+      </div>
+      <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+    </main>
+  </div>
+  <script>
+    (() => {
+      const button = document.querySelector("#run-e2e");
+      const summary = document.querySelector("#e2e-summary");
+      const results = document.querySelector("#e2e-results");
+      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const makeId = () => globalThis.crypto?.randomUUID?.() || "e2e-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+      const config = () => ({
+        gatewayUrl: (() => { const value = document.querySelector("#gateway-url").value.trim(); return value.endsWith("/") ? value.slice(0, -1) : value; })(),
+        userId: document.querySelector("#user-id").value.trim() || "organizer-1",
+        workspaceId: document.querySelector("#workspace-id").value.trim() || "workspace-1",
+        roles: document.querySelector("#roles").value.trim() || "OWNER,ORGANIZER,PARTICIPANT,CHECKIN_STAFF"
+      });
+      const basePath = (path) => (config().gatewayUrl || "") + path;
+      const headers = (extra = {}) => ({ "X-User-Id": config().userId, "X-Workspace-Id": config().workspaceId, "X-Roles": config().roles, "X-Request-Id": makeId(), "X-Correlation-Id": makeId(), ...extra });
+      async function request(path, options = {}) {
+        const next = { ...options, headers: headers(options.headers || {}) };
+        if (next.body && typeof next.body === "string") next.headers["Content-Type"] = "application/json";
+        const response = await fetch(basePath(path), next);
+        const raw = await response.text();
+        let data = raw;
+        try { data = raw ? JSON.parse(raw) : null; } catch {}
+        if (!response.ok) throw new Error((data && (data.message || data.error || data.detail)) || ("HTTP " + response.status));
+        return data;
+      }
+      async function retry(task, attempts = 8) {
+        let error;
+        for (let index = 0; index < attempts; index += 1) {
+          try { return await task(); } catch (nextError) { error = nextError; if (index + 1 < attempts) await sleep(600 + index * 250); }
+        }
+        throw error;
+      }
+      function check(condition, message) { if (!condition) throw new Error(message); }
+      function uploadTarget(signedUrl) {
+        try {
+          const parsed = new URL(signedUrl);
+          if (/^(localhost|127\.0\.0\.1|localstack)$/i.test(parsed.hostname)) return "/__s3?url=" + encodeURIComponent(signedUrl);
+        } catch {}
+        return signedUrl;
+      }
+      async function run() {
+        if (button.disabled) return;
+        button.disabled = true;
+        button.textContent = "Running...";
+        summary.textContent = "Running 0 cases";
+        results.innerHTML = "";
+        const rows = [];
+        const record = async (name, task) => {
+          try {
+            await task();
+            rows.push({ name, ok: true });
+          } catch (error) {
+            rows.push({ name, ok: false, detail: String(error?.message || error).replace(/\s+/g, " ").slice(0, 160) });
+          }
+          const passed = rows.filter((row) => row.ok).length;
+          summary.textContent = "Running " + rows.length + " / 13";
+          results.innerHTML = rows.map((row) => "<li class=\"e2e-case " + (row.ok ? "e2e-pass" : "e2e-fail") + "\"><b>" + (row.ok ? "PASS" : "FAIL") + "</b> " + row.name + (row.detail ? " <small>" + row.detail + "</small>" : "") + "</li>").join("");
+          results.lastElementChild?.scrollIntoView({ block: "nearest" });
+        };
+        let event;
+        let registration;
+        let session;
+        await record("Gateway lists events", async () => { const data = await request("/api/v1/events"); check(Array.isArray(data), "response is not an array"); });
+        await record("Create disposable event", async () => {
+          const start = new Date(Date.now() + 60 * 60 * 1000);
+          const end = new Date(Date.now() + 2 * 60 * 60 * 1000);
+          event = await request("/api/v1/events", { method: "POST", body: JSON.stringify({ title: "Static E2E " + Date.now(), description: "Disposable browser E2E fixture", startsAt: start.toISOString(), endsAt: end.toISOString(), timezone: "Asia/Ho_Chi_Minh", capacity: 2 }) });
+          check(event?.id, "created event has no id");
+        });
+        await record("Read event by id", async () => { check(event?.id, "create case did not produce an event"); const data = await request("/api/v1/events/" + event.id); check(data.id === event.id, "id mismatch"); });
+        await record("Versioned event update", async () => {
+          check(event?.id, "event dependency missing");
+          event = await request("/api/v1/events/" + event.id, { method: "PATCH", body: JSON.stringify({ title: event.title + " updated", description: event.description, startsAt: event.startsAt, endsAt: event.endsAt, timezone: event.timezone, capacity: event.capacity, version: event.version }) });
+          check(event.version >= 1, "version did not advance");
+        });
+        await record("Publish event", async () => { event = await request("/api/v1/events/" + event.id + "/publish", { method: "POST" }); check(event.status === "PUBLISHED", "status is " + event.status); });
+        await record("Register participant", async () => {
+          const key = "static-e2e-" + makeId();
+          registration = await retry(() => request("/api/v1/events/" + event.id + "/registrations", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify({}) }));
+          check(registration?.id || registration?.registrationId, "registration id missing");
+          window.__staticE2EIdempotencyKey = key;
+        });
+        await record("Replay registration idempotently", async () => {
+          const replay = await retry(() => request("/api/v1/events/" + event.id + "/registrations", { method: "POST", headers: { "Idempotency-Key": window.__staticE2EIdempotencyKey }, body: JSON.stringify({}) }));
+          check((replay.id || replay.registrationId) === (registration.id || registration.registrationId), "replay returned another registration");
+        });
+        await record("Check in participant", async () => { const data = await retry(() => request("/api/v1/events/" + event.id + "/check-ins", { method: "POST", body: JSON.stringify({ participantId: config().userId }) })); check(data.status === "CHECKED_IN", "status is " + data.status); });
+        await record("List attendance", async () => { const data = await retry(() => request("/api/v1/events/" + event.id + "/attendance")); check(Array.isArray(data), "attendance is not an array"); });
+        await record("Create private upload session", async () => { session = await request("/api/v1/events/" + event.id + "/media/upload-session", { method: "POST", body: JSON.stringify({ fileName: "static-e2e.png", contentType: "image/png", size: 4 }) }); check(session?.uploadUrl && session?.mediaId, "upload session is incomplete"); });
+        await record("Upload object to private S3", async () => { const response = await fetch(uploadTarget(session.uploadUrl), { method: "PUT", headers: { "Content-Type": "image/png" }, body: new Uint8Array([0, 1, 2, 3]) }); check(response.ok, "S3 returned " + response.status); });
+        await record("Finalize media record", async () => { const data = await request("/api/v1/events/" + event.id + "/media/" + session.mediaId + "/finalize", { method: "POST" }); check(data.state === "READY", "media state is " + data.state); });
+        await record("Gateway weather route", async () => { const data = await request("/api/v1/network/weather"); check(data && (data.current || data.city || data.location), "weather payload is empty"); });
+        const passed = rows.filter((row) => row.ok).length;
+        const failed = rows.length - passed;
+        summary.textContent = "Passed " + passed + " / " + rows.length + (failed ? " (" + failed + " failed)" : " - all green");
+        button.disabled = false;
+        button.textContent = "Run E2E suite";
+      }
+      button?.addEventListener("click", run);
+    })();
+  </script>
+</body>
+</html>
