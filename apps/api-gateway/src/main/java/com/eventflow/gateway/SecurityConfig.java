@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
+import org.springframework.http.HttpMethod;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -38,6 +39,7 @@ final class SecurityConfig {
         SecurityWebFilterChain oidcChain(ServerHttpSecurity http) {
             return http.csrf(ServerHttpSecurity.CsrfSpec::disable)
                     .authorizeExchange(exchange -> exchange
+                            .pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                             .pathMatchers("/actuator/health/**").permitAll()
                             .anyExchange().authenticated())
                     .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt -> jwt

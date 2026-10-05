@@ -180,6 +180,7 @@ services:
       EVENT_SERVICE_URL: http://event-service:8081
       REGISTRATION_SERVICE_URL: http://registration-service:8082
       OIDC_ENABLED: "false"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:4173,http://localhost:4174}"
     ports:
       - "28181:8080"
     depends_on:

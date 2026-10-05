@@ -36,6 +36,7 @@ data:
   EVENT_SERVICE_URL: http://event-service:8081
   REGISTRATION_SERVICE_URL: http://registration-service:8082
   OIDC_ENABLED: "false"
+  CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS}"
   OIDC_ISSUER_URI: http://localhost:28180/realms/eventflow
   OIDC_JWK_SET_URI: http://keycloak:8080/realms/eventflow/protocol/openid-connect/certs
   DB_POOL_SIZE: "30"

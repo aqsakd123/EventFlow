@@ -16,6 +16,13 @@ Local identity headers:
 - X-Workspace-Id
 - X-Roles: OWNER, ORGANIZER, PARTICIPANT, CHECKIN_STAFF
 
+Browser CORS:
+- The gateway reads `CORS_ALLOWED_ORIGINS` as a comma-separated origin allowlist.
+- Set it to the exact CloudFront origin, for example `https://d123example.cloudfront.net`.
+- Keep the value free of paths or trailing slashes. Local defaults are
+  `http://localhost:4173,http://localhost:4174`.
+- Recreate the gateway after changing the value; event-service and registration-service do not need browser CORS.
+
 Kafka is one KRaft broker. A single broker must set:
 KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
 KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
