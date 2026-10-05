@@ -66,6 +66,13 @@ eventflow:
 management:
   endpoints:
     web:
+      cors:
+        allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4173,http://localhost:4174}
+        allowed-methods: GET,POST,PATCH,DELETE,OPTIONS
+        allowed-headers: Authorization,Content-Type,Idempotency-Key,X-User-Id,X-Workspace-Id,X-Roles,X-Request-Id,X-Correlation-Id
+        exposed-headers: X-Request-Id,X-Correlation-Id,X-Trace-Id,X-Processed-At,X-EventFlow-Db-Route,X-EventFlow-Replay-Lsn,X-EventFlow-Commit-Lsn,X-EventFlow-Entity-Version,X-EventFlow-Write-Pin-Until
+        allow-credentials: false
+        max-age: 3600
       exposure:
         include: health,info,metrics,prometheus
   endpoint:
