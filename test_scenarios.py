@@ -93,13 +93,13 @@ class Scenario:
         scoped_sql = f"SET search_path TO {schema}; {sql}"
         if self.runtime == "docker":
             command = ["docker", "compose", "-f", self.compose_file, "exec", "-T", "event-db-primary",
-                       "psql", "-U", "eventflow", "-d", "eventflow", "-tAc", scoped_sql]
+                       "psql", "-q", "-U", "eventflow", "-d", "eventflow", "-tAc", scoped_sql]
         else:
             pod = self.command(["kubectl", "--context", self.kube_context, "--insecure-skip-tls-verify=true",
                                 "-n", "eventflow", "get", "pods", "-l", "app=shared-db-primary",
                                 "-o", "jsonpath={.items[0].metadata.name}"])
             command = ["kubectl", "--context", self.kube_context, "--insecure-skip-tls-verify=true",
-                       "-n", "eventflow", "exec", pod, "--", "psql", "-U", "eventflow", "-d", "eventflow", "-tAc", scoped_sql]
+                       "-n", "eventflow", "exec", pod, "--", "psql", "-q", "-U", "eventflow", "-d", "eventflow", "-tAc", scoped_sql]
         return self.command(command).strip()
 
     @staticmethod

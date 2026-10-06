@@ -15,9 +15,13 @@ public class OutboxMetrics {
     private final JdbcTemplate jdbc;
     private final AtomicLong pending = new AtomicLong();
     private final AtomicLong processing = new AtomicLong();
+    private final AtomicLong quarantined = new AtomicLong();
     private final AtomicLong oldestAgeSeconds = new AtomicLong();
     private final Counter sent;
     private final Counter failed;
+    private final Counter recovered;
+    private final Counter quarantinedCounter;
+    private final Counter claimConflicts;
 
     public OutboxMetrics(JdbcTemplate jdbc, MeterRegistry registry) {
         this.jdbc = jdbc;
@@ -27,11 +31,23 @@ public class OutboxMetrics {
         this.failed = Counter.builder("eventflow.outbox.failed")
                 .description("Outbox publish attempts that failed")
                 .register(registry);
+        this.recovered = Counter.builder("eventflow.outbox.recovered")
+                .description("Expired outbox leases recovered for another attempt")
+                .register(registry);
+        this.quarantinedCounter = Counter.builder("eventflow.outbox.quarantined.total")
+                .description("Outbox messages moved to quarantine")
+                .register(registry);
+        this.claimConflicts = Counter.builder("eventflow.outbox.claim.conflicts")
+                .description("Outbox claim or lease ownership conflicts")
+                .register(registry);
         Gauge.builder("eventflow.outbox.pending", pending, AtomicLong::doubleValue)
                 .description("Pending outbox messages")
                 .register(registry);
         Gauge.builder("eventflow.outbox.processing", processing, AtomicLong::doubleValue)
                 .description("Outbox messages currently being processed")
+                .register(registry);
+        Gauge.builder("eventflow.outbox.quarantined", quarantined, AtomicLong::doubleValue)
+                .description("Outbox messages in quarantine")
                 .register(registry);
         Gauge.builder("eventflow.outbox.oldest.age.seconds", oldestAgeSeconds, AtomicLong::doubleValue)
                 .description("Age of the oldest unsent outbox message")
@@ -44,6 +60,7 @@ public class OutboxMetrics {
         try {
             pending.set(count("PENDING"));
             processing.set(count("PROCESSING"));
+            quarantined.set(count("QUARANTINED"));
             oldestAgeSeconds.set(oldestAgeSeconds());
         } catch (RuntimeException ignored) {
             // Health remains responsible for reporting a database failure.
@@ -58,6 +75,22 @@ public class OutboxMetrics {
         failed.increment();
     }
 
+    public void markRecovered(int count) {
+        recovered.increment(count);
+    }
+
+    public void markQuarantined() {
+        quarantinedCounter.increment();
+    }
+
+    public void markQuarantined(int count) {
+        quarantinedCounter.increment(count);
+    }
+
+    public void markClaimConflict() {
+        claimConflicts.increment();
+    }
+
     private long count(String status) {
         Long value = jdbc.queryForObject(
                 "SELECT count(*) FROM outbox_messages WHERE status = ?", Long.class, status);
@@ -67,7 +100,7 @@ public class OutboxMetrics {
     private long oldestAgeSeconds() {
         Double value = jdbc.queryForObject("""
                 SELECT COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at))), 0)
-                FROM outbox_messages WHERE status <> 'SENT'
+                FROM outbox_messages WHERE status IN ('PENDING', 'PROCESSING')
                 """, (rs, rowNum) -> rs.getDouble(1));
         return value == null ? 0 : Math.max(0, Math.round(value));
     }

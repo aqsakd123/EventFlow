@@ -28,6 +28,12 @@ spring:
         default-requeue-rejected: false
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+        acks: all
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:eventflow-analytics}
       auto-offset-reset: earliest
@@ -49,6 +55,20 @@ eventflow:
     topic: ${KAFKA_TOPIC:eventflow.domain-events}
   outbox:
     poll-ms: ${OUTBOX_POLL_MS:1000}
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:8}
+    base-delay-ms: ${OUTBOX_BASE_DELAY_MS:250}
+    max-delay-ms: ${OUTBOX_MAX_DELAY_MS:300000}
+    jitter-ratio: ${OUTBOX_JITTER_RATIO:0.2}
+    lease-ms: ${OUTBOX_LEASE_MS:30000}
+  internal-http:
+    connect-timeout-ms: ${INTERNAL_HTTP_CONNECT_TIMEOUT_MS:1000}
+    read-timeout-ms: ${INTERNAL_HTTP_READ_TIMEOUT_MS:3000}
+  circuit-breaker:
+    sliding-window-size: ${INTERNAL_CB_SLIDING_WINDOW_SIZE:20}
+    minimum-number-of-calls: ${INTERNAL_CB_MINIMUM_NUMBER_OF_CALLS:5}
+    failure-rate-threshold: ${INTERNAL_CB_FAILURE_RATE_THRESHOLD:50}
+    open-state-wait-ms: ${INTERNAL_CB_OPEN_STATE_WAIT_MS:10000}
+    half-open-permitted-calls: ${INTERNAL_CB_HALF_OPEN_PERMITTED_CALLS:2}
   metrics:
     refresh-ms: ${METRICS_REFRESH_MS:5000}
     kafka-lag-refresh-ms: ${KAFKA_LAG_REFRESH_MS:5000}
