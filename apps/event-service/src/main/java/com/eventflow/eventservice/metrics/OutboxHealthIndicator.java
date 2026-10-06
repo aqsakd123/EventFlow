@@ -26,15 +26,20 @@ public class OutboxHealthIndicator implements HealthIndicator {
                     "SELECT count(*) FROM outbox_messages WHERE status = 'PENDING'", Long.class);
             Long processing = jdbc.queryForObject(
                     "SELECT count(*) FROM outbox_messages WHERE status = 'PROCESSING'", Long.class);
+            Long quarantined = jdbc.queryForObject(
+                    "SELECT count(*) FROM outbox_messages WHERE status = 'QUARANTINED'", Long.class);
             Double age = jdbc.queryForObject("""
                     SELECT COALESCE(EXTRACT(EPOCH FROM (now() - min(created_at))), 0)
-                    FROM outbox_messages WHERE status <> 'SENT'
+                    FROM outbox_messages WHERE status IN ('PENDING', 'PROCESSING')
                     """, (rs, rowNum) -> rs.getDouble(1));
             long ageSeconds = age == null ? 0 : Math.max(0, Math.round(age));
-            String state = ageSeconds > alertAgeSeconds ? "BACKLOG_OLDER_THAN_THRESHOLD" : "OK";
+            long quarantinedCount = quarantined == null ? 0 : quarantined;
+            String state = quarantinedCount > 0 ? "QUARANTINED_MESSAGES"
+                    : ageSeconds > alertAgeSeconds ? "BACKLOG_OLDER_THAN_THRESHOLD" : "OK";
             return Health.up().withDetails(Map.of(
                     "pending", pending == null ? 0 : pending,
                     "processing", processing == null ? 0 : processing,
+                    "quarantined", quarantinedCount,
                     "oldestAgeSeconds", ageSeconds,
                     "alertAgeSeconds", alertAgeSeconds,
                     "state", state)).build();
